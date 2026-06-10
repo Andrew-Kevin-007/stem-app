@@ -40,51 +40,56 @@ export async function POST(req: NextRequest) {
 }
 
 async function handlePROpened(pr: any, repo: any) {
-  const { number: prNumber, head } = pr;
-  const { full_name: repoFullName } = repo;
-  const [owner, repoName] = repoFullName.split('/');
+  const { number: prNumber } = pr;
+  const owner = repo.full_name.split('/')[0];
+  const repoName = repo.name;
 
-  console.log(`PR #${prNumber} opened in ${repoFullName}`);
+  console.log(`PR #${prNumber} opened — creating cluster`);
 
   try {
-    // Step 1: Create Aurora clone
-    const { createAuroraClone } = await import('@/lib/aurora');
-    const { cloneId, endpoint } = await createAuroraClone(prNumber);
-    console.log(`Clone created: ${cloneId} at ${endpoint}`);
+    const { RDSClient, RestoreDBClusterToPointInTimeCommand, DescribeDBClustersCommand } = await import('@aws-sdk/client-rds');
+    const rds = new RDSClient({ region: 'us-east-1' });
+    const cloneId = `stem-pr-${prNumber}-${Date.now()}`;
 
-    // Step 2: Run PII anonymization
-    const { runAnonymization } = await import('@/lib/anonymizer');
-    const anonymizedCols = await runAnonymization(endpoint);
-    console.log(`Anonymized: ${anonymizedCols.join(', ')}`);
+    await rds.send(new RestoreDBClusterToPointInTimeCommand({
+      DBClusterIdentifier: cloneId,
+      SourceDBClusterIdentifier: process.env.AURORA_SOURCE_CLUSTER_ID!,
+      RestoreType: 'copy-on-write',
+      UseLatestRestorableTime: true,
+      DBSubnetGroupName: process.env.AURORA_SUBNET_GROUP!,
+      VpcSecurityGroupIds: [process.env.AURORA_SECURITY_GROUP_ID!],
+      Tags: [{ Key: 'stem-pr', Value: String(prNumber) }],
+    }));
 
-    // Step 3: Inject DATABASE_URL into Vercel
-    const { injectVercelEnvVar } = await import('@/lib/vercel');
-    const envId = await injectVercelEnvVar(prNumber, endpoint);
-    console.log(`Vercel env injected: ${envId}`);
+    let endpoint = '';
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const res = await rds.send(new DescribeDBClustersCommand({ DBClusterIdentifier: cloneId }));
+      const status = res.DBClusters?.[0]?.Status;
+      console.log(`Cluster: ${status}`);
+      if (status === 'available') {
+        endpoint = res.DBClusters![0].Endpoint!;
+        break;
+      }
+    }
 
-    // Step 4: Save branch record to DSQL
+    if (!endpoint) throw new Error('Cluster timed out');
+
     const { saveBranch } = await import('@/lib/dsql');
     await saveBranch({
       prNumber,
       cloneClusterId: cloneId,
       endpoint,
-      anonymizedColumns: anonymizedCols,
-      vercelEnvId: envId,
-      state: 'active',
+      anonymizedColumns: [],
+      vercelEnvId: '',
+      state: 'cluster_ready',
+      owner,
+      repo: repoName,
     });
 
-    // Step 5: Post PR comment
-    const { postBranchComment } = await import('@/lib/github');
-    await postBranchComment(owner, repoName, prNumber, {
-      cloneId,
-      anonymizedCols,
-      costPerDay: 0.11,
-      readyInSeconds: 28,
-    });
-
-    console.log(`PR #${prNumber} fully processed`);
+    console.log(`Cluster ready PR #${prNumber} — cron will continue`);
   } catch (err) {
-    console.error(`Error processing PR #${prNumber}:`, err);
+    console.error(`Error PR #${prNumber}:`, err);
   }
 }
 

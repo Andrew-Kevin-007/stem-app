@@ -15,7 +15,6 @@ export async function injectVercelEnvVar(prNumber: number, dbEndpoint: string): 
       value: dbUrl,
       type: 'encrypted',
       target: ['preview'],
-      gitBranch: `pr-${prNumber}`,
     }),
   });
 

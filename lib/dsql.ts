@@ -26,13 +26,17 @@ export async function saveBranch(data: {
   anonymizedColumns: string[];
   vercelEnvId: string;
   state: string;
+  owner?: string;
+  repo?: string;
 }) {
   const client = await getDSQLClient();
   try {
     await client.query(
-      `INSERT INTO branches (pr_number, clone_cluster_id, endpoint, anonymized_columns, vercel_env_id, state, cost_estimate_daily, ready_in_seconds)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO branches
+        (team_id, pr_number, clone_cluster_id, endpoint, anonymized_columns, vercel_env_id, state, cost_estimate_daily, ready_in_seconds, owner, repo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
+        '00000000-0000-0000-0000-000000000001', // default team_id for hackathon
         data.prNumber,
         data.cloneClusterId,
         data.endpoint,
@@ -41,8 +45,46 @@ export async function saveBranch(data: {
         data.state,
         0.11,
         28,
+        data.owner || '',
+        data.repo || '',
       ]
     );
+  } finally {
+    await client.end();
+  }
+}
+
+export async function updateBranchState(cloneClusterId: string, state: string, extra?: Partial<{
+  vercelEnvId: string;
+  anonymizedColumns: string[];
+  instanceId: string;
+}>) {
+  const client = await getDSQLClient();
+  try {
+    if (extra?.vercelEnvId !== undefined) {
+      await client.query(
+        `UPDATE branches SET state=$1, vercel_env_id=$2, anonymized_columns=$3 WHERE clone_cluster_id=$4`,
+        [state, extra.vercelEnvId, JSON.stringify(extra.anonymizedColumns || []), cloneClusterId]
+      );
+    } else {
+      await client.query(
+        `UPDATE branches SET state=$1 WHERE clone_cluster_id=$2`,
+        [state, cloneClusterId]
+      );
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+export async function getBranchesByState(state: string) {
+  const client = await getDSQLClient();
+  try {
+    const res = await client.query(
+      `SELECT * FROM branches WHERE state=$1`,
+      [state]
+    );
+    return res.rows;
   } finally {
     await client.end();
   }
