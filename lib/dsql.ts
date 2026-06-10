@@ -61,17 +61,15 @@ export async function updateBranchState(cloneClusterId: string, state: string, e
 }>) {
   const client = await getDSQLClient();
   try {
-    if (extra?.vercelEnvId !== undefined) {
-      await client.query(
-        `UPDATE branches SET state=$1, vercel_env_id=$2, anonymized_columns=$3 WHERE clone_cluster_id=$4`,
-        [state, extra.vercelEnvId, JSON.stringify(extra.anonymizedColumns || []), cloneClusterId]
-      );
-    } else {
-      await client.query(
-        `UPDATE branches SET state=$1 WHERE clone_cluster_id=$2`,
-        [state, cloneClusterId]
-      );
-    }
+    await client.query(
+      `UPDATE branches SET state=$1, vercel_env_id=COALESCE($2, vercel_env_id), anonymized_columns=$3 WHERE clone_cluster_id=$4`,
+      [
+        state,
+        extra?.vercelEnvId ?? null,
+        JSON.stringify(extra?.anonymizedColumns ?? []),
+        cloneClusterId,
+      ]
+    );
   } finally {
     await client.end();
   }

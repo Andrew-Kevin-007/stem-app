@@ -18,13 +18,47 @@ export async function injectVercelEnvVar(prNumber: number, dbEndpoint: string): 
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Vercel env inject failed: ${err}`);
+  if (res.ok) {
+    const data = await res.json();
+    return data.id;
   }
 
-  const data = await res.json();
-  return data.id;
+  // If DATABASE_URL already exists, find it and PATCH the value instead.
+  const errBody = await res.json().catch(() => ({})) as Record<string, unknown>;
+  const isAlreadyExists =
+    res.status === 400 &&
+    (JSON.stringify(errBody).includes('already') || JSON.stringify(errBody).includes('exists'));
+
+  if (isAlreadyExists) {
+    const listRes = await fetch(
+      `https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env`,
+      { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } }
+    );
+    if (listRes.ok) {
+      const listData = await listRes.json() as { envs?: Array<{ id: string; key: string }> };
+      const existing = listData.envs?.find((e) => e.key === 'DATABASE_URL');
+      if (existing) {
+        const patchRes = await fetch(
+          `https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env/${existing.id}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${VERCEL_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ value: dbUrl }),
+          }
+        );
+        if (!patchRes.ok) {
+          throw new Error(`Vercel env update failed: ${await patchRes.text()}`);
+        }
+        const patchData = await patchRes.json() as { id?: string };
+        return patchData.id ?? existing.id;
+      }
+    }
+  }
+
+  throw new Error(`Vercel env inject failed: ${JSON.stringify(errBody)}`);
 }
 
 export async function deleteVercelEnvVar(envId: string) {
