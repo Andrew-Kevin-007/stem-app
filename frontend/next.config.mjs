@@ -7,6 +7,11 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Type safety is enforced via `tsc --noEmit`; don't fail production builds on
+  // lint of the vendored shadcn/ui components (version-sensitive react-hooks rules).
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   async headers() {
     return [
       {

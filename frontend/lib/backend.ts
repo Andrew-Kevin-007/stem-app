@@ -20,3 +20,15 @@ export function backendHeaders(): Record<string, string> {
   }
   return headers
 }
+
+/**
+ * Public origin of this frontend, used to build OAuth redirect URIs. Prefers
+ * the configured APP_BASE_URL, then Vercel's deployment URL, then the inbound
+ * request's own origin so it works on any preview without configuration.
+ */
+export function appBaseUrl(req: Request): string {
+  const configured = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL
+  if (configured) return configured.replace(/\/+$/, "")
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return new URL(req.url).origin
+}

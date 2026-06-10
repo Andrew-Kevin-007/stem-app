@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth"
+import { readSession, SESSION_COOKIE } from "@/lib/auth"
 
-// Gate the dashboard and the data proxy routes behind a signed session.
+// Gate the dashboard, onboarding, and data/aws routes behind a valid session.
 // /api/auth/* and the public marketing pages stay open.
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/dashboard/:path*", "/api/cron/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/connect/:path*",
+    "/api/dashboard/:path*",
+    "/api/cron/:path*",
+    "/api/aws/:path*",
+  ],
 }
 
 export async function middleware(req: NextRequest) {
-  const session = await verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value)
+  const session = await readSession(req.cookies.get(SESSION_COOKIE)?.value)
   if (session) return NextResponse.next()
 
   if (req.nextUrl.pathname.startsWith("/api/")) {

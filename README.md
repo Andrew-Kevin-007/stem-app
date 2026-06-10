@@ -10,7 +10,7 @@ Stem is a DevTool for teams in regulated industries (GDPR / HIPAA / SOC 2) who c
 
 Dashboard: **<https://stem-frontend-six.vercel.app>**
 
-The dashboard sits behind a login gate. On the public demo instance, sign in with any email and access key `stem-demo`. Authenticated operators see live branch state and can copy clone connection endpoints.
+The dashboard sits behind **Sign in with GitHub**. Authenticated operators see live branch state, copy clone connection endpoints, and connect the repos + AWS account STEM provisions into. When GitHub OAuth isn't configured on a deployment, a clearly-labeled demo session is offered instead so the UI is still explorable.
 
 The demo is connected to a real Aurora PostgreSQL source database and a real GitHub App: opening a PR on [`Andrew-Kevin-007/stem-test-repo`](https://github.com/Andrew-Kevin-007/stem-test-repo) triggers the actual pipeline.
 
@@ -76,12 +76,22 @@ npx vercel --prod
 
 Both projects deploy directly with `vercel --prod`; no GitHub auto-deploy integration is required.
 
-### Dashboard authentication
+### Authentication & account connection
 
-The frontend gates `/dashboard` and its data routes behind `/login`. Sessions are HMAC-signed, `httpOnly`, `SameSite=Lax` cookies (12 h TTL); login attempts are rate-limited and the access key is compared in constant time.
+The frontend gates `/dashboard`, `/connect`, and the data/AWS routes behind a real **GitHub App OAuth** sign-in (enforced in `middleware.ts`). After signing in, operators complete a two-step `/connect` onboarding:
 
-- `DASHBOARD_ACCESS_KEY` — the access key your users enter at `/login`. Unset = demo mode, which accepts the public key `stem-demo`.
-- `SESSION_SECRET` — cookie-signing secret. Set a long random value in production.
+1. **GitHub repository access** — install the STEM App on chosen repos (`pull_requests: write`, `contents: read`). Access comes from the App installation, *not* broad OAuth scopes; the OAuth step only reads the public profile.
+2. **AWS account access** — connect via a **cross-account IAM role** (the Datadog/Vercel pattern). The user deploys a CloudFormation stack (template generated per-user with their unique, server-derived **ExternalId**) that creates a least-privilege role trusting STEM's AWS account. STEM verifies the connection by performing an STS `AssumeRole`. No long-lived AWS keys ever leave the customer account.
+
+Security properties: sessions are **AES-256-GCM-encrypted** `httpOnly` `SameSite=Lax` cookies (12 h TTL) — the GitHub token is never exposed to the browser; OAuth uses a sealed, single-use `state` cookie for CSRF; the ExternalId guards against confused-deputy; security headers (`nosniff`, `X-Frame-Options: DENY`, referrer + permissions policy) are set globally.
+
+Environment (see `frontend/.env.example`):
+
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — the GitHub App's OAuth credentials. Unset = demo mode. Set the App's callback URL to `{APP_BASE_URL}/api/auth/github/callback`.
+- `GITHUB_APP_SLUG` — used to build the App install link.
+- `AUTH_ENCRYPTION_KEY` (or `SESSION_SECRET`) — 32+ random bytes for session encryption.
+- `STEM_AWS_ACCOUNT_ID` / `STEM_AWS_EXTERNAL_ID_SECRET` — trusted principal + ExternalId derivation.
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — STEM's control-plane creds used to verify the assumed role.
 
 ## How the Pipeline Works
 
