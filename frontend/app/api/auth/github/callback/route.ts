@@ -62,9 +62,8 @@ export async function GET(req: NextRequest) {
     res.cookies.set(OAUTH_STATE_COOKIE, "", { path: "/", maxAge: 0 })
     return res
   } catch (err) {
-    // Log the raw error so it appears in Vercel function logs.
+    // Log server-side only; never reflect internal error detail back in the URL.
     console.error("[stem/auth/callback] exchange failed:", err)
-    const detail = err instanceof Error ? err.message : String(err)
-    return fail(req, `exchange_failed&detail=${encodeURIComponent(detail)}`)
+    return fail(req, "exchange_failed")
   }
 }

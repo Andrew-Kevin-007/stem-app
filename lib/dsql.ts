@@ -36,7 +36,7 @@ export async function saveBranch(data: {
         (team_id, pr_number, clone_cluster_id, endpoint, anonymized_columns, vercel_env_id, state, cost_estimate_daily, ready_in_seconds, owner, repo)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
-        '00000000-0000-0000-0000-000000000001', // default team_id for hackathon
+        process.env.STEM_TEAM_ID || '00000000-0000-0000-0000-000000000001',
         data.prNumber,
         data.cloneClusterId,
         data.endpoint,

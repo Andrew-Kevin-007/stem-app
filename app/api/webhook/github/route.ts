@@ -6,10 +6,19 @@ import type { AuroraTarget } from '@/lib/aurora';
 export const maxDuration = 300;
 
 function verifySignature(body: string, signature: string | null): boolean {
-  if (!signature) return false;
-  const secret = process.env.GITHUB_WEBHOOK_SECRET!;
+  const secret = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!secret || !signature) return false;
   const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  // timingSafeEqual throws on length mismatch — a malformed header must yield
+  // a clean 401, never an unhandled 500.
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -26,10 +35,10 @@ export async function POST(req: NextRequest) {
 
   console.log(`GitHub event: ${event} / ${action}`);
 
-  if (event === 'pull_request' && action === 'opened') {
+  if (event === 'pull_request' && (action === 'opened' || action === 'reopened')) {
     // Fire and forget — don't await, respond to GitHub immediately
     waitUntil(handlePROpened(body.pull_request, body.repository));
-    return NextResponse.json({ ok: true, message: 'PR opened — processing' });
+    return NextResponse.json({ ok: true, message: `PR ${action} — processing` });
   }
 
   if (event === 'pull_request' && action === 'closed') {

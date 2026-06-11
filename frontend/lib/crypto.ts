@@ -7,14 +7,16 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 function secret(): string {
-  // Prefer a dedicated key; fall back to the session secret, then a fixed
-  // dev constant so local dev runs unconfigured. Set AUTH_ENCRYPTION_KEY in
-  // production (32+ random bytes, any encoding).
-  return (
-    process.env.AUTH_ENCRYPTION_KEY ||
-    process.env.SESSION_SECRET ||
-    "stem-dev-insecure-key-set-AUTH_ENCRYPTION_KEY-in-prod"
-  )
+  const configured = process.env.AUTH_ENCRYPTION_KEY || process.env.SESSION_SECRET
+  if (configured) return configured
+  // Fail closed in production: the dev fallback below is published in the
+  // repo, so allowing it in prod would let anyone forge a session cookie and
+  // impersonate any user. Marketing pages don't touch this path, so they
+  // stay up; only auth-bearing requests error until the key is configured.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_ENCRYPTION_KEY (or SESSION_SECRET) must be set in production")
+  }
+  return "stem-dev-insecure-key-set-AUTH_ENCRYPTION_KEY-in-prod"
 }
 
 let keyPromise: Promise<CryptoKey> | null = null
