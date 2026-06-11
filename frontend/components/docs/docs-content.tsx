@@ -167,47 +167,53 @@ export function DocsContent() {
 
           <DocSection id="quickstart" number="02" title="QUICKSTART">
             <Para>
-              STEM runs as a GitHub Action plus a control plane that talks to your AWS account through a scoped IAM
-              role. Three steps from zero to first branch:
+              STEM is a GitHub App plus a control plane that reaches your AWS account through a scoped IAM role.
+              No CLI, no workflow files — three steps from zero to first branch:
             </Para>
             <Para>
-              <span className="text-foreground">Step 1 —</span> Install the GitHub App on the repositories that
-              should get database branches. STEM only requests pull request read and comment write scopes.
+              <span className="text-foreground">Step 1 — Sign in with GitHub.</span> Go to{" "}
+              <a href="/login" className="text-accent hover:underline">
+                /login
+              </a>{" "}
+              and authenticate. STEM reads your public profile only — repository access is granted in the next
+              step, never through OAuth scopes.
             </Para>
             <Para>
-              <span className="text-foreground">Step 2 —</span> Connect your AWS account by deploying the STEM IAM
-              role. The role is scoped to Aurora clone, describe, and delete operations — nothing else.
+              <span className="text-foreground">Step 2 — Install the STEM App.</span> From the{" "}
+              <a href="/connect" className="text-accent hover:underline">
+                Connect
+              </a>{" "}
+              page, install the GitHub App on the repositories that should get database branches. The App requests{" "}
+              <span className="text-foreground">Pull requests: write</span> (to post the branch comment) and{" "}
+              <span className="text-foreground">Contents: read</span> — nothing else. Webhooks fire automatically;
+              there is no workflow file to add.
             </Para>
-            <CodeBlock title="terminal">{`$ stem connect aws \\
-    --cluster prod-aurora-pg \\
-    --region us-east-1 \\
-    --role-arn arn:aws:iam::123456789012:role/stem-clone-role`}</CodeBlock>
             <Para>
-              <span className="text-foreground">Step 3 —</span> Add the workflow file. This is the entire CI
-              integration:
+              <span className="text-foreground">Step 3 — Connect AWS.</span> Still on the Connect page: open AWS
+              CloudShell, paste the single command shown there, and copy back the Role ARN it prints. The command
+              deploys a CloudFormation stack containing one least-privilege IAM role:
             </Para>
-            <CodeBlock title=".github/workflows/stem.yml">{`name: stem
-on:
-  pull_request:
-    types: [opened, reopened, synchronize, closed]
-
-jobs:
-  branch:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: stem-ci/branch-action@v1
-        with:
-          cluster: prod-aurora-pg
-          masking-profile: default`}</CodeBlock>
+            <CodeBlock title="what the role allows">{`describe / list      account-wide (RDS has no resource scoping here)
+clone create         RestoreDBClusterToPointInTime, CreateDBInstance
+delete               ONLY resources named stem-pr-* — your other
+                     clusters are untouchable by STEM
+trust                STEM's account only, gated by your ExternalId`}</CodeBlock>
             <Para>
-              Open a pull request. stem-ci posts a comment with the branch endpoint when the masking pass completes.
+              Open a pull request on a connected repo. stem-ci posts a comment with the branch endpoint when the
+              masking pass completes — typically under 30 seconds. Watch it live on the{" "}
+              <a href="/dashboard" className="text-accent hover:underline">
+                dashboard
+              </a>
+              .
             </Para>
           </DocSection>
 
           <DocSection id="configuration" number="03" title="CONFIGURATION">
             <Para>
-              Branch behavior is controlled by a single <span className="text-foreground">stem.config.json</span> at
-              the repository root. Every field is optional — defaults are production-safe.
+              <span className="text-accent uppercase tracking-widest text-[10px]">Roadmap — </span>
+              per-repo configuration ships as a <span className="text-foreground">stem.config.json</span> at the
+              repository root. In the current release every branch uses the production-safe defaults shown below;
+              the file is not yet read.
             </Para>
             <CodeBlock title="stem.config.json">{`{
   "cluster": "prod-aurora-pg",

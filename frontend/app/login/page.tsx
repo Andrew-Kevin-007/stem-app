@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export default async function LoginPage() {
   // Already signed in? Skip straight through.
   const session = await readSession((await cookies()).get(SESSION_COOKIE)?.value)
-  if (session) redirect(session.installations > 0 || session.demo ? "/dashboard" : "/connect")
+  if (session) redirect(session.installations > 0 ? "/dashboard" : "/connect")
 
   return (
     <main className="relative min-h-screen">

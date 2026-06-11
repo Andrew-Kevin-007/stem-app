@@ -14,8 +14,8 @@ const runbooks = [
   {
     code: "RB-02",
     symptom: "stem-ci never comments on the PR",
-    cause: "The GitHub App is not installed on the repository, or the workflow file is missing the pull_request trigger.",
-    fix: "Verify the App installation covers the repo, then confirm .github/workflows/stem.yml listens to pull_request types [opened, reopened, synchronize, closed].",
+    cause: "The STEM GitHub App is not installed on the repository, so the pull_request webhook never reaches the control plane.",
+    fix: "Open Connect from the dashboard account menu and check repository access. Install (or extend) the App on the repo, then reopen the PR — no workflow file is needed; the App's webhook fires automatically.",
   },
   {
     code: "RB-03",
@@ -38,8 +38,20 @@ const runbooks = [
   {
     code: "RB-06",
     symptom: "IAM role deployment fails",
-    cause: "The deploying principal lacks iam:CreateRole, or SCP guardrails block the rds:CreateDBClusterClone action.",
-    fix: "Deploy with an admin principal once — the role itself stays minimal (clone/describe/delete on tagged clusters only). Review the role's trust policy against your org's SCPs.",
+    cause: "The deploying principal lacks iam:CreateRole, or SCP guardrails block role creation.",
+    fix: "Run the CloudShell command as a principal with IAM admin once — the role itself stays minimal (describe + clone create account-wide, delete locked to stem-pr-* resources). Review the role's trust policy against your org's SCPs.",
+  },
+  {
+    code: "RB-07",
+    symptom: "AWS connect says it can't assume the role",
+    cause: "IAM is eventually consistent — a just-created role can take ~30 seconds to become assumable. Otherwise the ExternalId in the stack doesn't match yours, or the stack deployed to a different account.",
+    fix: "Wait 30 seconds and click Verify & Connect again. Still failing? Re-run the CloudShell command from the Connect page (it carries your current ExternalId) and confirm you're signed into the intended AWS account.",
+  },
+  {
+    code: "RB-08",
+    symptom: "GitHub sign-in fails with a state-mismatch error",
+    cause: "The OAuth state cookie was lost — usually a stale tab that sat on GitHub's authorize page past the 10-minute window, or cookies blocked for the site.",
+    fix: "Go back to /login and start again in the same tab. If it persists, allow cookies for the dashboard origin — the state cookie is the CSRF proof; sign-in is impossible without it.",
   },
 ]
 

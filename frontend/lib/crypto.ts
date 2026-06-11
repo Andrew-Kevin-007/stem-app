@@ -7,8 +7,8 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 function secret(): string {
-  // Prefer a dedicated key; fall back to the session secret, then a demo
-  // constant so the app still runs unconfigured. Set AUTH_ENCRYPTION_KEY in
+  // Prefer a dedicated key; fall back to the session secret, then a fixed
+  // dev constant so local dev runs unconfigured. Set AUTH_ENCRYPTION_KEY in
   // production (32+ random bytes, any encoding).
   return (
     process.env.AUTH_ENCRYPTION_KEY ||

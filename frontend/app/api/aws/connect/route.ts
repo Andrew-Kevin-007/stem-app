@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Could not assume the role. Confirm the CloudFormation stack deployed and the trust policy/ExternalId match, then retry.",
+            "Could not assume the role yet. If the stack just finished, IAM can take ~30 seconds to propagate — wait and retry. Otherwise confirm the stack deployed in this account and the ExternalId matches.",
           detail: err instanceof Error ? err.message : String(err),
         },
         { status: 422 },
@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
       ghToken: session.ghToken,
       installations: session.installations,
       aws,
-      demo: session.demo,
     }),
     sessionCookieOptions,
   )

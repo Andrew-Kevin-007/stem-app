@@ -3,13 +3,15 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Check, Copy, Download, ExternalLink, Github, Cloud, ShieldCheck } from "lucide-react"
+import { Check, Copy, Download, ExternalLink, Github, Cloud, ShieldCheck, Terminal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { PublicSession } from "@/lib/auth"
 
 interface AwsProps {
   externalId: string
-  stemAccountId: string
+  stemAccountId: string | null
+  shellCommand: string
+  shellUrl: string
   consoleUrl: string
   stsConfigured: boolean
 }
@@ -41,7 +43,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
           /* clipboard unavailable */
         }
       }}
-      className="inline-flex items-center gap-1.5 border border-border/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:border-accent hover:text-accent transition-colors"
+      className="inline-flex shrink-0 items-center gap-1.5 border border-border/40 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:border-accent hover:text-accent transition-colors"
       aria-label={`Copy ${label}`}
     >
       {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
@@ -62,10 +64,10 @@ export function ConnectClient({
   aws: AwsProps
 }) {
   const router = useRouter()
-  const githubConnected = session.installations > 0 || session.demo
+  const githubConnected = session.installations > 0
   const awsConnected = !!session.aws
 
-  const [roleArn, setRoleArn] = useState(session.aws?.accountId ? "" : "")
+  const [roleArn, setRoleArn] = useState("")
   const [awsBusy, setAwsBusy] = useState(false)
   const [awsError, setAwsError] = useState<string | null>(null)
   const [awsOk, setAwsOk] = useState<string | null>(
@@ -131,7 +133,7 @@ export function ConnectClient({
         <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-accent">Onboarding</span>
         <h1 className="mt-3 font-[var(--font-bebas)] text-5xl tracking-tight">CONNECT YOUR STACK</h1>
         <p className="mt-3 max-w-2xl font-mono text-xs text-muted-foreground leading-relaxed">
-          STEM needs two grants: repository access (so it can clone-per-PR and comment) and scoped
+          Two grants and you&apos;re live: repository access (clone-per-PR + comments) and scoped
           access to the AWS account that hosts your source database.
         </p>
       </div>
@@ -150,11 +152,7 @@ export function ConnectClient({
               <span className="text-foreground/80">Contents: read</span> — nothing more.
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              {session.demo ? (
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  Demo session — repository install skipped.
-                </span>
-              ) : githubConnected ? (
+              {githubConnected ? (
                 <span className="inline-flex items-center gap-2 font-mono text-[11px] text-accent">
                   <Check className="h-4 w-4" aria-hidden="true" />
                   Installed on {session.installations} account{session.installations === 1 ? "" : "s"}
@@ -169,16 +167,14 @@ export function ConnectClient({
                   Install STEM App <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                 </a>
               )}
-              {!session.demo && (
-                <button
-                  type="button"
-                  onClick={() => oauthEnabled && (window.location.href = "/api/auth/github?next=/connect")}
-                  disabled={!oauthEnabled}
-                  className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-accent transition-colors disabled:opacity-40"
-                >
-                  Refresh status
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => oauthEnabled && (window.location.href = "/api/auth/github?next=/connect")}
+                disabled={!oauthEnabled}
+                className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-accent transition-colors disabled:opacity-40"
+              >
+                Refresh status
+              </button>
             </div>
           </div>
         </div>
@@ -188,57 +184,55 @@ export function ConnectClient({
       <section className="border border-border/40 bg-card/30 p-6 md:p-8">
         <div className="flex items-start gap-4">
           <StepBadge done={awsConnected} n={2} />
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h2 className="inline-flex items-center gap-2 font-[var(--font-bebas)] text-2xl tracking-tight">
               <Cloud className="h-5 w-5 text-accent" aria-hidden="true" /> AWS Account Access
             </h2>
             <p className="mt-2 font-mono text-xs text-muted-foreground leading-relaxed">
-              Grant access by deploying a CloudFormation stack that creates an IAM role STEM can
-              assume — no access keys ever leave your account. The role trusts STEM&apos;s account
-              <code className="mx-1 text-accent">{aws.stemAccountId}</code> and is locked to your
-              unique ExternalId.
+              One command in AWS CloudShell creates a least-privilege IAM role STEM can assume — no
+              access keys ever leave your account, and STEM can only delete resources named{" "}
+              <code className="text-accent">stem-pr-*</code>.
             </p>
 
-            {/* Sub-steps */}
-            <ol className="mt-5 flex flex-col gap-4">
+            <ol className="mt-5 flex flex-col gap-5">
               <li className="flex flex-col gap-2 border-l-2 border-border/40 pl-4">
                 <span className="font-mono text-[11px] text-foreground/80">
-                  1. Download the template (your ExternalId is baked in)
+                  1. Open AWS CloudShell (you&apos;re signed into AWS — it&apos;s the terminal icon, or use this
+                  link)
                 </span>
-                <div className="flex flex-wrap items-center gap-3">
-                  <a
-                    href="/api/aws/cloudformation-template"
-                    className="inline-flex items-center gap-2 border border-border/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-accent hover:text-accent transition-colors"
-                  >
-                    <Download className="h-3 w-3" aria-hidden="true" /> Template
-                  </a>
-                  <a
-                    href={aws.consoleUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 border border-border/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-accent hover:text-accent transition-colors"
-                  >
-                    Open CloudFormation <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  </a>
-                </div>
+                <a
+                  href={aws.shellUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-fit items-center gap-2 border border-border/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-accent hover:text-accent transition-colors"
+                >
+                  <Terminal className="h-3 w-3" aria-hidden="true" /> Open CloudShell{" "}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
               </li>
+
               <li className="flex flex-col gap-2 border-l-2 border-border/40 pl-4">
-                <span className="font-mono text-[11px] text-foreground/80">2. Your ExternalId</span>
-                <div className="flex items-center gap-3">
-                  <code className="truncate font-mono text-[11px] text-accent">{aws.externalId}</code>
-                  <CopyButton value={aws.externalId} label="ExternalId" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-[11px] text-foreground/80">
+                    2. Paste this command — it deploys the role and prints your Role ARN
+                  </span>
+                  <CopyButton value={aws.shellCommand} label="CloudShell command" />
                 </div>
+                <pre className="overflow-x-auto border border-border/30 bg-background/60 p-3 font-mono text-[10px] leading-relaxed text-foreground/90">
+                  <code>{aws.shellCommand}</code>
+                </pre>
               </li>
+
               <li className="flex flex-col gap-2 border-l-2 border-border/40 pl-4">
                 <span className="font-mono text-[11px] text-foreground/80">
-                  3. Paste the role ARN from the stack output
+                  3. Paste the printed ARN (the last line of output)
                 </span>
                 <form onSubmit={submitAws} className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <input
                     value={roleArn}
                     onChange={(e) => setRoleArn(e.target.value)}
                     placeholder="arn:aws:iam::123456789012:role/stem-access-role"
-                    className="flex-1 border border-border/40 bg-background/60 px-4 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                    className="min-w-0 flex-1 border border-border/40 bg-background/60 px-4 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
                   />
                   <button
                     type="submit"
@@ -250,15 +244,9 @@ export function ConnectClient({
                         : "border-foreground/20 text-foreground hover:border-accent hover:text-accent hover:bg-accent/5 disabled:opacity-40",
                     )}
                   >
-                    {awsBusy ? "Verifying…" : awsConnected ? "Reconnect" : "Connect"}
+                    {awsBusy ? "Verifying…" : awsConnected ? "Reconnect" : "Verify & Connect"}
                   </button>
                 </form>
-                {!aws.stsConfigured && (
-                  <p className="font-mono text-[10px] text-muted-foreground/60">
-                    Note: STEM&apos;s control-plane AWS credentials aren&apos;t configured on this
-                    deployment, so the ARN is saved but not live-verified via STS.
-                  </p>
-                )}
                 {awsError && (
                   <p role="alert" className="font-mono text-[11px] text-destructive">
                     {awsError}
@@ -269,8 +257,47 @@ export function ConnectClient({
                     <Check className="h-4 w-4" aria-hidden="true" /> {awsOk}
                   </p>
                 )}
+                {!aws.stsConfigured && (
+                  <p className="font-mono text-[10px] text-muted-foreground/60">
+                    Operator note: control-plane AWS credentials aren&apos;t set on this deployment,
+                    so ARNs are saved without live STS verification.
+                  </p>
+                )}
               </li>
             </ol>
+
+            {/* Manual fallback */}
+            <details className="mt-6 border-t border-border/20 pt-4">
+              <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-accent transition-colors">
+                Prefer the console? Manual CloudFormation path
+              </summary>
+              <div className="mt-4 flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <a
+                    href="/api/aws/cloudformation-template"
+                    className="inline-flex items-center gap-2 border border-border/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-accent hover:text-accent transition-colors"
+                  >
+                    <Download className="h-3 w-3" aria-hidden="true" /> Download template (ExternalId baked in)
+                  </a>
+                  <a
+                    href={aws.consoleUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 border border-border/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-accent hover:text-accent transition-colors"
+                  >
+                    Open CloudFormation <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-[10px] text-muted-foreground">Your ExternalId:</span>
+                  <code className="truncate font-mono text-[11px] text-accent">{aws.externalId}</code>
+                  <CopyButton value={aws.externalId} label="ExternalId" />
+                </div>
+                <p className="font-mono text-[10px] text-muted-foreground/60 leading-relaxed">
+                  Upload the template as a new stack, deploy, then paste the RoleArn stack output above.
+                </p>
+              </div>
+            </details>
           </div>
         </div>
       </section>
@@ -279,7 +306,7 @@ export function ConnectClient({
       <div className="flex items-center justify-between border-t border-border/20 pt-6">
         <span className="inline-flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
           <ShieldCheck className="h-3.5 w-3.5 text-accent/70" aria-hidden="true" />
-          Cross-account role · ExternalId-scoped · no stored keys
+          Cross-account role · ExternalId-scoped · deletes locked to stem-pr-*
         </span>
         <Link
           href="/dashboard"

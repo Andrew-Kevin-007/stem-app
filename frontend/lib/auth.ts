@@ -19,20 +19,19 @@ export interface AwsConnection {
 }
 
 export interface Session {
-  /** GitHub numeric user id, or "demo" for the unconfigured demo session. */
+  /** GitHub numeric user id. */
   sub: string
   login: string
   name: string | null
   email: string | null
   avatarUrl: string | null
-  /** GitHub user-to-server access token (only present for real sessions). */
+  /** GitHub user-to-server access token. */
   ghToken?: string
   /** Number of orgs/accounts where the user has installed the STEM App. */
   installations: number
   aws?: AwsConnection
   iat: number
   exp: number
-  demo?: boolean
 }
 
 /** Identity-only view safe to return to the browser (no token). */
@@ -43,7 +42,6 @@ export interface PublicSession {
   avatarUrl: string | null
   installations: number
   aws: { accountId: string; verified: boolean; connectedAt: number } | null
-  demo: boolean
 }
 
 export function toPublicSession(s: Session): PublicSession {
@@ -54,7 +52,6 @@ export function toPublicSession(s: Session): PublicSession {
     avatarUrl: s.avatarUrl,
     installations: s.installations,
     aws: s.aws ? { accountId: s.aws.accountId, verified: s.aws.verified, connectedAt: s.aws.connectedAt } : null,
-    demo: !!s.demo,
   }
 }
 

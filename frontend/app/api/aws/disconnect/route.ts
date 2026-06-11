@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
       avatarUrl: session.avatarUrl,
       ghToken: session.ghToken,
       installations: session.installations,
-      demo: session.demo,
     }),
     sessionCookieOptions,
   )

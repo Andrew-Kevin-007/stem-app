@@ -20,7 +20,8 @@ export function isGitHubOAuthConfigured(): boolean {
 }
 
 export function githubAppSlug(): string {
-  return process.env.GITHUB_APP_SLUG || ""
+  // Default to the deployed STEM App's slug (named after its private key file).
+  return process.env.GITHUB_APP_SLUG || "stem-ci-andrew-kevin-007"
 }
 
 /** Where the user installs the STEM App to grant repo access. */

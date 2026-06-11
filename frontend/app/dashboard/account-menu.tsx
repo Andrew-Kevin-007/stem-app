@@ -33,7 +33,7 @@ export function AccountMenu() {
 
   if (!session) return null
 
-  const ghOk = session.installations > 0 || session.demo
+  const ghOk = session.installations > 0
   const awsOk = !!session.aws
 
   return (
@@ -65,16 +65,13 @@ export function AccountMenu() {
           <div className="border-b border-border/30 px-4 py-3">
             <p className="font-mono text-xs text-foreground truncate">{session.name ?? session.login}</p>
             {session.email && <p className="font-mono text-[10px] text-muted-foreground truncate">{session.email}</p>}
-            {session.demo && (
-              <p className="mt-1 font-mono text-[9px] uppercase tracking-widest text-accent">Demo session</p>
-            )}
           </div>
           <div className="flex flex-col px-4 py-3 gap-2.5 font-mono text-[10px]">
             <span className="inline-flex items-center gap-2 text-muted-foreground">
               <Github className="h-3.5 w-3.5" aria-hidden="true" />
               {ghOk ? (
                 <span className="text-accent">
-                  {session.demo ? "Demo" : `${session.installations} repo install${session.installations === 1 ? "" : "s"}`}
+                  {session.installations} repo install{session.installations === 1 ? "" : "s"}
                 </span>
               ) : (
                 <span>No repo access</span>

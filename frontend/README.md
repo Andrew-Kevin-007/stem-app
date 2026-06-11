@@ -1,33 +1,35 @@
-# STEM-Site
+# STEM Frontend
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [v0](https://v0.app).
+Next.js 16 App Router dashboard for [STEM](../README.md) — isolated, PII-anonymized Aurora
+database branches for every PR. Deployed as its own Vercel project (`vercel --prod` from this
+directory).
 
-## Built with v0
+## What lives here
 
-This repository is linked to a [v0](https://v0.app) project. You can continue developing by visiting the link below -- start new chats to make changes, and v0 will push commits directly to this repo. Every merge to `main` will automatically deploy.
+- `/` — marketing/landing pages (static)
+- `/login` — Sign in with GitHub (GitHub App OAuth)
+- `/connect` — onboarding: install the GitHub App, connect AWS via cross-account IAM role
+- `/dashboard` — live branch state, polled every 10 s through same-origin proxy routes
+- `app/api/dashboard`, `app/api/cron/*` — server-side proxies to the STEM backend (no CORS needed)
+- `app/api/auth/*` — OAuth flow + session management (AES-256-GCM cookie sessions)
+- `app/api/aws/*` — CloudFormation template + STS AssumeRole verification
+- `middleware.ts` — session gate for the dashboard and data routes
 
-[Continue working on v0 →](https://v0.app/chat/projects/prj_0duTgFByq7JVsZQPg3jEArxxnQzF)
-
-## Getting Started
-
-First, run the development server:
+## Run locally
 
 ```bash
+cp .env.example .env.local   # fill in — see comments in the file
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Type-check with `npx tsc --noEmit`. Build with `npm run build`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy
 
-## Learn More
+```bash
+npx vercel --prod
+```
 
-To learn more, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [v0 Documentation](https://v0.app/docs) - learn about v0 and how to use it.
+Set the env vars from `.env.example` in the Vercel project. `APP_BASE_URL` should be the
+production origin; the GitHub App's callback URL must be `{APP_BASE_URL}/api/auth/github/callback`.

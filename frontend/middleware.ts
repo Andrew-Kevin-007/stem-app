@@ -14,6 +14,10 @@ export const config = {
 }
 
 export async function middleware(req: NextRequest) {
+  // Public: the parameterized CloudFormation template (no user data) that
+  // AWS CloudShell fetches during account connection.
+  if (req.nextUrl.pathname === "/api/aws/template") return NextResponse.next()
+
   const session = await readSession(req.cookies.get(SESSION_COOKIE)?.value)
   if (session) return NextResponse.next()
 

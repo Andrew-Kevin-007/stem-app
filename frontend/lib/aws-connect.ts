@@ -12,9 +12,26 @@ export function isStsConfigured(): boolean {
   return !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
 }
 
-export function stemAwsAccountId(): string {
-  // STEM's own account id — the trusted principal in the customer's role.
-  return process.env.STEM_AWS_ACCOUNT_ID || "000000000000"
+let cachedAccountId: string | null = null
+
+/**
+ * STEM's own AWS account id — the trusted principal in the customer's role.
+ * Uses STEM_AWS_ACCOUNT_ID when set; otherwise derives it once from the
+ * control-plane credentials via STS GetCallerIdentity (one less config knob).
+ */
+export async function resolveStemAccountId(): Promise<string | null> {
+  if (process.env.STEM_AWS_ACCOUNT_ID) return process.env.STEM_AWS_ACCOUNT_ID
+  if (cachedAccountId) return cachedAccountId
+  if (!isStsConfigured()) return null
+  try {
+    const { STSClient, GetCallerIdentityCommand } = await import("@aws-sdk/client-sts")
+    const sts = new STSClient({ region: process.env.AWS_REGION || "us-east-1" })
+    const out = await sts.send(new GetCallerIdentityCommand({}))
+    cachedAccountId = out.Account ?? null
+    return cachedAccountId
+  } catch {
+    return null
+  }
 }
 
 export function parseRoleArn(arn: string): { accountId: string } | null {
@@ -39,68 +56,135 @@ export async function deriveExternalId(sub: string): Promise<string> {
   return `stem-${Array.from(sig.slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("")}`
 }
 
-/** Least-privilege role the customer grants STEM, as a CloudFormation template. */
-export function cloudFormationTemplate(externalId: string): string {
+/**
+ * Least-privilege role policy. Describe/list are account-wide (RDS does not
+ * support resource-level scoping for them); create targets are constrained by
+ * the pipeline's stem-pr-* naming; destructive actions are HARD-scoped so STEM
+ * can never delete a non-STEM cluster or instance in the customer account.
+ */
+function rolePolicyStatements() {
+  return [
+    {
+      Sid: "RdsReadOnly",
+      Effect: "Allow",
+      Action: ["rds:DescribeDBClusters", "rds:DescribeDBInstances", "rds:ListTagsForResource"],
+      Resource: "*",
+    },
+    {
+      Sid: "RdsCloneCreate",
+      Effect: "Allow",
+      Action: ["rds:RestoreDBClusterToPointInTime", "rds:CreateDBInstance", "rds:AddTagsToResource"],
+      Resource: "*",
+    },
+    {
+      Sid: "RdsCloneDestroyStemOnly",
+      Effect: "Allow",
+      Action: ["rds:DeleteDBInstance", "rds:DeleteDBCluster"],
+      Resource: [
+        { "Fn::Sub": "arn:aws:rds:*:${AWS::AccountId}:cluster:stem-pr-*" },
+        { "Fn::Sub": "arn:aws:rds:*:${AWS::AccountId}:db:stem-pr-*" },
+      ],
+    },
+  ]
+}
+
+function roleResource(trustedAccountId: string, externalIdRef: unknown) {
+  return {
+    Type: "AWS::IAM::Role",
+    Properties: {
+      RoleName: "stem-access-role",
+      AssumeRolePolicyDocument: {
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Principal: { AWS: `arn:aws:iam::${trustedAccountId}:root` },
+            Action: "sts:AssumeRole",
+            Condition: { StringEquals: { "sts:ExternalId": externalIdRef } },
+          },
+        ],
+      },
+      Policies: [
+        {
+          PolicyName: "stem-rds-branching",
+          PolicyDocument: { Version: "2012-10-17", Statement: rolePolicyStatements() },
+        },
+      ],
+    },
+  }
+}
+
+const TEMPLATE_OUTPUTS = {
+  RoleArn: {
+    Description: "Paste this ARN back into STEM to finish connecting.",
+    Value: { "Fn::GetAtt": ["StemAccessRole", "Arn"] },
+  },
+}
+
+/** Personalized template — the user's ExternalId baked in. For manual download. */
+export function cloudFormationTemplate(trustedAccountId: string, externalId: string): string {
   return JSON.stringify(
     {
       AWSTemplateFormatVersion: "2010-09-09",
-      Description: "STEM cross-account access role — grants the STEM control plane scoped RDS access for PR database branching.",
-      Resources: {
-        StemAccessRole: {
-          Type: "AWS::IAM::Role",
-          Properties: {
-            RoleName: "stem-access-role",
-            AssumeRolePolicyDocument: {
-              Version: "2012-10-17",
-              Statement: [
-                {
-                  Effect: "Allow",
-                  Principal: { AWS: `arn:aws:iam::${stemAwsAccountId()}:root` },
-                  Action: "sts:AssumeRole",
-                  Condition: { StringEquals: { "sts:ExternalId": externalId } },
-                },
-              ],
-            },
-            Policies: [
-              {
-                PolicyName: "stem-rds-branching",
-                PolicyDocument: {
-                  Version: "2012-10-17",
-                  Statement: [
-                    {
-                      Sid: "RdsCloneLifecycle",
-                      Effect: "Allow",
-                      Action: [
-                        "rds:RestoreDBClusterToPointInTime",
-                        "rds:CreateDBInstance",
-                        "rds:DeleteDBInstance",
-                        "rds:DeleteDBCluster",
-                        "rds:DescribeDBClusters",
-                        "rds:DescribeDBInstances",
-                        "rds:AddTagsToResource",
-                        "rds:ListTagsForResource",
-                      ],
-                      Resource: "*",
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        },
-      },
-      Outputs: {
-        RoleArn: { Description: "Paste this ARN back into STEM to finish connecting.", Value: { "Fn::GetAtt": ["StemAccessRole", "Arn"] } },
-      },
+      Description:
+        "STEM cross-account access role — grants the STEM control plane scoped RDS access for PR database branching.",
+      Resources: { StemAccessRole: roleResource(trustedAccountId, externalId) },
+      Outputs: TEMPLATE_OUTPUTS,
     },
     null,
     2,
   )
 }
 
-/** Deep link to the CloudFormation console pre-filled with the template body. */
+/**
+ * Parameterized template — same role, ExternalId supplied as a stack
+ * parameter. Served publicly (contains no user data) so CloudShell can
+ * fetch it without an authenticated browser session.
+ */
+export function parameterizedTemplate(trustedAccountId: string): string {
+  return JSON.stringify(
+    {
+      AWSTemplateFormatVersion: "2010-09-09",
+      Description:
+        "STEM cross-account access role — grants the STEM control plane scoped RDS access for PR database branching.",
+      Parameters: {
+        ExternalId: {
+          Type: "String",
+          MinLength: 8,
+          Description: "Your STEM ExternalId (shown on the Connect page).",
+        },
+      },
+      Resources: { StemAccessRole: roleResource(trustedAccountId, { Ref: "ExternalId" }) },
+      Outputs: TEMPLATE_OUTPUTS,
+    },
+    null,
+    2,
+  )
+}
+
+/**
+ * One-paste AWS CloudShell command: fetches the template, deploys the stack,
+ * and prints the role ARN as the final line. The user copies that ARN back.
+ */
+export function cloudShellCommand(origin: string, externalId: string): string {
+  const templateUrl = `${origin.replace(/\/+$/, "")}/api/aws/template`
+  return [
+    `curl -fsSL ${templateUrl} -o /tmp/stem-role.json`,
+    `aws cloudformation deploy --stack-name stem-access --template-file /tmp/stem-role.json --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ExternalId=${externalId}`,
+    `aws cloudformation describe-stacks --stack-name stem-access --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue" --output text`,
+  ].join(" && ")
+}
+
+/** Deep link to AWS CloudShell in the pipeline's region. */
+export function cloudShellUrl(): string {
+  const region = process.env.AWS_REGION || "us-east-1"
+  return `https://${region}.console.aws.amazon.com/cloudshell/home?region=${region}`
+}
+
+/** Deep link to the CloudFormation console for the manual path. */
 export function consoleCreateStackUrl(): string {
-  return "https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create"
+  const region = process.env.AWS_REGION || "us-east-1"
+  return `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/create`
 }
 
 /**
