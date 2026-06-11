@@ -77,6 +77,14 @@ function rolePolicyStatements() {
       Resource: "*",
     },
     {
+      // Reset the clone's master password before anonymizing — scoped so STEM
+      // can only modify clusters it created, never the customer's source.
+      Sid: "RdsCloneModifyStemOnly",
+      Effect: "Allow",
+      Action: ["rds:ModifyDBCluster"],
+      Resource: [{ "Fn::Sub": "arn:aws:rds:*:${AWS::AccountId}:cluster:stem-pr-*" }],
+    },
+    {
       Sid: "RdsCloneDestroyStemOnly",
       Effect: "Allow",
       Action: ["rds:DeleteDBInstance", "rds:DeleteDBCluster"],
@@ -187,6 +195,36 @@ export function consoleCreateStackUrl(): string {
   return `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/create`
 }
 
+interface AssumedCreds {
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+}
+
+async function assume(roleArn: string, externalId: string, region: string): Promise<{ accountId: string; credentials: AssumedCreds }> {
+  const { STSClient, AssumeRoleCommand } = await import("@aws-sdk/client-sts")
+  const sts = new STSClient({ region })
+  const out = await sts.send(
+    new AssumeRoleCommand({
+      RoleArn: roleArn,
+      RoleSessionName: "stem-connect-verify",
+      ExternalId: externalId,
+      DurationSeconds: 900,
+    }),
+  )
+  const c = out.Credentials
+  if (!c?.AccessKeyId || !c.SecretAccessKey || !c.SessionToken) {
+    throw new Error("AssumeRole returned no credentials")
+  }
+  const accountId =
+    out.AssumedRoleUser?.Arn?.match(/arn:aws:sts::(\d{12}):/)?.[1] ?? parseRoleArn(roleArn)?.accountId ?? ""
+  if (!accountId) throw new Error("Could not resolve account id from assumed role")
+  return {
+    accountId,
+    credentials: { accessKeyId: c.AccessKeyId, secretAccessKey: c.SecretAccessKey, sessionToken: c.SessionToken },
+  }
+}
+
 /**
  * Verify the customer role by actually assuming it. Returns the resolved
  * account id on success. The AWS SDK is dynamically imported so it never gets
@@ -196,18 +234,26 @@ export async function verifyAssumeRole(
   roleArn: string,
   externalId: string,
 ): Promise<{ accountId: string }> {
-  const { STSClient, AssumeRoleCommand } = await import("@aws-sdk/client-sts")
-  const sts = new STSClient({ region: process.env.AWS_REGION || "us-east-1" })
-  const out = await sts.send(
-    new AssumeRoleCommand({
-      RoleArn: roleArn,
-      RoleSessionName: "stem-connect-verify",
-      ExternalId: externalId,
-      DurationSeconds: 900,
-    }),
-  )
-  const assumedArn = out.AssumedRoleUser?.Arn ?? ""
-  const accountId = assumedArn.match(/arn:aws:sts::(\d{12}):/)?.[1] ?? parseRoleArn(roleArn)?.accountId ?? ""
-  if (!accountId) throw new Error("Could not resolve account id from assumed role")
+  const { accountId } = await assume(roleArn, externalId, process.env.AWS_REGION || "us-east-1")
   return { accountId }
+}
+
+/**
+ * Confirm the assumed role can actually see the named Aurora cluster
+ * (rds:DescribeDBClusters). Proves the cluster id + region are right and the
+ * role's policy covers RDS before we persist the connection.
+ */
+export async function verifyClusterAccess(
+  roleArn: string,
+  externalId: string,
+  region: string,
+  clusterId: string,
+): Promise<{ accountId: string; status: string }> {
+  const { accountId, credentials } = await assume(roleArn, externalId, region)
+  const { RDSClient, DescribeDBClustersCommand } = await import("@aws-sdk/client-rds")
+  const rds = new RDSClient({ region, credentials })
+  const out = await rds.send(new DescribeDBClustersCommand({ DBClusterIdentifier: clusterId }))
+  const cluster = out.DBClusters?.[0]
+  if (!cluster) throw new Error(`Cluster ${clusterId} not found in ${region}`)
+  return { accountId, status: cluster.Status ?? "unknown" }
 }

@@ -17,7 +17,7 @@ The dashboard sits behind **Sign in with GitHub**. After signing in, a two-step 
 
 This instance is connected to a real Aurora PostgreSQL source database and a real GitHub App: opening a PR on [`Andrew-Kevin-007/stem-test-repo`](https://github.com/Andrew-Kevin-007/stem-test-repo) triggers the actual pipeline.
 
-> **Current release scope:** clone provisioning runs in the STEM control-plane AWS account against its configured source cluster. The customer role you connect is verified and stored — per-customer-account provisioning rides on it as the next milestone.
+**Multi-tenant:** each user's PR clones provision in **their own** AWS account against **their own** Aurora cluster. Connecting AWS is a two-part step — (a) the cross-account role above, then (b) naming your source Aurora cluster (cluster ID, subnet group, security group, region). The webhook resolves the repo owner to their stored connection, assumes their role, and clones there; the dashboard scopes every view to the signed-in user. The operator's own repos (`STEM_OPERATOR_LOGIN`) keep using the env-configured cluster, so the original single-tenant path is unbroken.
 
 ## Architecture
 

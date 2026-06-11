@@ -6,9 +6,29 @@ import {
   DeleteDBClusterCommand,
   DescribeDBClustersCommand,
   DescribeDBInstancesCommand,
+  ModifyDBClusterCommand,
 } from '@aws-sdk/client-rds';
+import type { AwsCredentials } from './tenant';
 
-const rds = new RDSClient({ region: process.env.AWS_REGION || 'us-east-1' });
+/**
+ * Per-call AWS targeting. Omitted = the operator's own account/cluster from
+ * env (the original single-tenant behavior, unchanged). Supplied = a tenant's
+ * account via STS-assumed credentials.
+ */
+export interface AuroraTarget {
+  credentials?: AwsCredentials;
+  region?: string;
+  sourceClusterId?: string;
+  subnetGroup?: string;
+  securityGroupId?: string;
+}
+
+export function rdsClientFor(target?: AuroraTarget): RDSClient {
+  return new RDSClient({
+    region: target?.region || process.env.AWS_REGION || 'us-east-1',
+    ...(target?.credentials ? { credentials: target.credentials } : {}),
+  });
+}
 
 async function poll(fn: () => Promise<boolean>, intervalMs = 5000, maxMs = 300000) {
   const start = Date.now();
@@ -19,27 +39,48 @@ async function poll(fn: () => Promise<boolean>, intervalMs = 5000, maxMs = 30000
   throw new Error('Poll timed out');
 }
 
-export async function createAuroraClone(prNumber: number): Promise<{ cloneId: string; endpoint: string }> {
+/** Stage-1 primitive used by the webhook: restore the COW clone cluster only. */
+export async function restoreCloneCluster(
+  prNumber: number,
+  target?: AuroraTarget,
+): Promise<{ cloneId: string; endpoint: string }> {
+  const rds = rdsClientFor(target);
   const cloneId = `stem-pr-${prNumber}-${Date.now()}`;
-  const instanceId = `${cloneId}-w`;
 
   await rds.send(new RestoreDBClusterToPointInTimeCommand({
     DBClusterIdentifier: cloneId,
-    SourceDBClusterIdentifier: process.env.AURORA_SOURCE_CLUSTER_ID!,
+    SourceDBClusterIdentifier: target?.sourceClusterId || process.env.AURORA_SOURCE_CLUSTER_ID!,
     RestoreType: 'copy-on-write',
     UseLatestRestorableTime: true,
-    DBSubnetGroupName: process.env.AURORA_SUBNET_GROUP!,
-    VpcSecurityGroupIds: [process.env.AURORA_SECURITY_GROUP_ID!],
+    DBSubnetGroupName: target?.subnetGroup || process.env.AURORA_SUBNET_GROUP!,
+    VpcSecurityGroupIds: [target?.securityGroupId || process.env.AURORA_SECURITY_GROUP_ID!],
     Tags: [{ Key: 'stem-pr', Value: String(prNumber) }],
   }));
 
+  let endpoint = '';
   await poll(async () => {
     const res = await rds.send(new DescribeDBClustersCommand({ DBClusterIdentifier: cloneId }));
     const status = res.DBClusters?.[0]?.Status;
     console.log(`Clone cluster: ${status}`);
     if (status === 'failed') throw new Error('Clone cluster failed');
-    return status === 'available';
-  }, 5000, 180000);
+    if (status === 'available') {
+      endpoint = res.DBClusters![0].Endpoint!;
+      return true;
+    }
+    return false;
+  }, 5000, 200000);
+
+  if (!endpoint) throw new Error('Cluster timed out');
+  return { cloneId, endpoint };
+}
+
+export async function createAuroraClone(
+  prNumber: number,
+  target?: AuroraTarget,
+): Promise<{ cloneId: string; endpoint: string }> {
+  const rds = rdsClientFor(target);
+  const { cloneId } = await restoreCloneCluster(prNumber, target);
+  const instanceId = `${cloneId}-w`;
 
   await rds.send(new CreateDBInstanceCommand({
     DBInstanceIdentifier: instanceId,
@@ -63,7 +104,32 @@ export async function createAuroraClone(prNumber: number): Promise<{ cloneId: st
   return { cloneId, endpoint };
 }
 
-export async function deleteAuroraClone(cloneId: string) {
+/**
+ * Reset a CLONE cluster's master password to a value STEM controls, so the
+ * anonymizer can connect. Admin-level RDS operation (authorized by IAM, not
+ * the old DB password) applied immediately. Only ever called on stem-pr-*
+ * clones — the customer's source cluster is never modified.
+ */
+export async function resetCloneMasterPassword(
+  cloneId: string,
+  newPassword: string,
+  target?: AuroraTarget,
+): Promise<void> {
+  const rds = rdsClientFor(target);
+  await rds.send(new ModifyDBClusterCommand({
+    DBClusterIdentifier: cloneId,
+    MasterUserPassword: newPassword,
+    ApplyImmediately: true,
+  }));
+  // ModifyDBCluster flips Status to 'resetting-master-credentials' briefly.
+  await poll(async () => {
+    const res = await rds.send(new DescribeDBClustersCommand({ DBClusterIdentifier: cloneId }));
+    return res.DBClusters?.[0]?.Status === 'available';
+  }, 5000, 120000);
+}
+
+export async function deleteAuroraClone(cloneId: string, target?: AuroraTarget) {
+  const rds = rdsClientFor(target);
   const instanceId = `${cloneId}-w`;
 
   try {

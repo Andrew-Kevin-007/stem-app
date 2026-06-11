@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Check, Copy, Download, ExternalLink, Github, Cloud, ShieldCheck, Terminal } from "lucide-react"
+import { Check, Copy, Download, ExternalLink, Github, Cloud, Database, ShieldCheck, Terminal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { PublicSession } from "@/lib/auth"
 
@@ -65,7 +65,8 @@ export function ConnectClient({
 }) {
   const router = useRouter()
   const githubConnected = session.installations > 0
-  const awsConnected = !!session.aws
+  const roleConnected = !!session.aws
+  const clusterConnected = !!session.aws?.clusterConnected
 
   const [roleArn, setRoleArn] = useState("")
   const [awsBusy, setAwsBusy] = useState(false)
@@ -99,6 +100,51 @@ export function ConnectClient({
     }
     setAwsBusy(false)
   }
+
+  // Step 3 — Aurora source cluster
+  const [cluster, setCluster] = useState({
+    clusterId: session.aws?.clusterId ?? "",
+    subnetGroup: "",
+    securityGroupId: "",
+    region: "us-east-1",
+    masterUser: "postgres",
+    database: "postgres",
+  })
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [clusterBusy, setClusterBusy] = useState(false)
+  const [clusterError, setClusterError] = useState<string | null>(null)
+  const [clusterOk, setClusterOk] = useState<string | null>(
+    session.aws?.clusterConnected ? `Cluster connected — ${session.aws.clusterId}` : null,
+  )
+
+  const submitCluster = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setClusterBusy(true)
+    setClusterError(null)
+    setClusterOk(null)
+    try {
+      const res = await fetch("/api/aws/cluster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cluster),
+      })
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; clusterId?: string; error?: string }
+        | null
+      if (res.ok && data?.ok) {
+        setClusterOk(`Cluster connected — ${data.clusterId}`)
+        router.refresh()
+      } else {
+        setClusterError(data?.error ?? `Cluster connect failed (${res.status})`)
+      }
+    } catch {
+      setClusterError("Network error — try again.")
+    }
+    setClusterBusy(false)
+  }
+
+  const field = (k: keyof typeof cluster) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setCluster((c) => ({ ...c, [k]: e.target.value }))
 
   return (
     <>
@@ -183,7 +229,7 @@ export function ConnectClient({
       {/* Step 2 — AWS cross-account role */}
       <section className="border border-border/40 bg-card/30 p-6 md:p-8">
         <div className="flex items-start gap-4">
-          <StepBadge done={awsConnected} n={2} />
+          <StepBadge done={roleConnected} n={2} />
           <div className="flex-1 min-w-0">
             <h2 className="inline-flex items-center gap-2 font-[var(--font-bebas)] text-2xl tracking-tight">
               <Cloud className="h-5 w-5 text-accent" aria-hidden="true" /> AWS Account Access
@@ -244,7 +290,7 @@ export function ConnectClient({
                         : "border-foreground/20 text-foreground hover:border-accent hover:text-accent hover:bg-accent/5 disabled:opacity-40",
                     )}
                   >
-                    {awsBusy ? "Verifying…" : awsConnected ? "Reconnect" : "Verify & Connect"}
+                    {awsBusy ? "Verifying…" : roleConnected ? "Reconnect" : "Verify & Connect"}
                   </button>
                 </form>
                 {awsError && (
@@ -298,6 +344,142 @@ export function ConnectClient({
                 </p>
               </div>
             </details>
+          </div>
+        </div>
+      </section>
+
+      {/* Step 3 — Aurora source cluster */}
+      <section
+        className={cn(
+          "border border-border/40 bg-card/30 p-6 md:p-8 transition-opacity",
+          !roleConnected && "opacity-50 pointer-events-none",
+        )}
+      >
+        <div className="flex items-start gap-4">
+          <StepBadge done={clusterConnected} n={3} />
+          <div className="flex-1 min-w-0">
+            <h2 className="inline-flex items-center gap-2 font-[var(--font-bebas)] text-2xl tracking-tight">
+              <Database className="h-5 w-5 text-accent" aria-hidden="true" /> Aurora Source Cluster
+            </h2>
+            <p className="mt-2 font-mono text-xs text-muted-foreground leading-relaxed">
+              Point STEM at the Aurora PostgreSQL cluster to clone per PR. We verify the role can
+              see it (<code className="text-accent">rds:DescribeDBClusters</code>) before saving —
+              your source cluster is only ever read from, never modified.
+            </p>
+
+            <form onSubmit={submitCluster} className="mt-5 flex flex-col gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground">
+                    Source cluster ID
+                  </span>
+                  <input
+                    value={cluster.clusterId}
+                    onChange={field("clusterId")}
+                    placeholder="my-aurora-cluster"
+                    className="border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground">
+                    DB subnet group
+                  </span>
+                  <input
+                    value={cluster.subnetGroup}
+                    onChange={field("subnetGroup")}
+                    placeholder="default-vpc-xxxx"
+                    className="border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground">
+                    VPC security group ID
+                  </span>
+                  <input
+                    value={cluster.securityGroupId}
+                    onChange={field("securityGroupId")}
+                    placeholder="sg-0123abcd4567ef89"
+                    className="border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground">
+                    AWS region
+                  </span>
+                  <select
+                    value={cluster.region}
+                    onChange={field("region")}
+                    className="border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-xs text-foreground focus:border-accent focus:outline-none transition-colors"
+                  >
+                    {["us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-central-1", "ap-south-1", "ap-southeast-1", "ap-southeast-2"].map(
+                      (r) => (
+                        <option key={r} value={r} className="bg-background">
+                          {r}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+              </div>
+
+              {/* Advanced: master user + db name, both sensibly defaulted */}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="self-start font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-accent transition-colors"
+              >
+                {showAdvanced ? "− Hide" : "+ Advanced"} (master user · database)
+              </button>
+              {showAdvanced && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground">
+                      Master username
+                    </span>
+                    <input
+                      value={cluster.masterUser}
+                      onChange={field("masterUser")}
+                      placeholder="postgres"
+                      className="border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground">
+                      Database name
+                    </span>
+                    <input
+                      value={cluster.database}
+                      onChange={field("database")}
+                      placeholder="postgres"
+                      className="border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-accent focus:outline-none transition-colors"
+                    />
+                  </label>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={clusterBusy || !cluster.clusterId || !roleConnected}
+                className={cn(
+                  "self-start inline-flex items-center justify-center gap-2 border px-5 py-2.5 font-mono text-[11px] uppercase tracking-widest transition-all duration-200",
+                  clusterBusy
+                    ? "border-accent/40 text-accent cursor-wait"
+                    : "border-foreground/20 text-foreground hover:border-accent hover:text-accent hover:bg-accent/5 disabled:opacity-40",
+                )}
+              >
+                {clusterBusy ? "Verifying…" : clusterConnected ? "Update cluster" : "Verify & Save cluster"}
+              </button>
+              {clusterError && (
+                <p role="alert" className="font-mono text-[11px] text-destructive">
+                  {clusterError}
+                </p>
+              )}
+              {clusterOk && (
+                <p className="inline-flex items-center gap-2 font-mono text-[11px] text-accent">
+                  <Check className="h-4 w-4" aria-hidden="true" /> {clusterOk}
+                </p>
+              )}
+            </form>
           </div>
         </div>
       </section>

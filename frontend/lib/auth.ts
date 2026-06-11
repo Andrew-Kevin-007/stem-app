@@ -16,6 +16,15 @@ export interface AwsConnection {
   /** true once an STS AssumeRole has actually succeeded against the role. */
   verified: boolean
   connectedAt: number
+  /** Aurora source cluster details — present once the cluster step is done. */
+  cluster?: {
+    clusterId: string
+    subnetGroup: string
+    securityGroupId: string
+    region: string
+    masterUser: string
+    database: string
+  }
 }
 
 export interface Session {
@@ -41,7 +50,13 @@ export interface PublicSession {
   email: string | null
   avatarUrl: string | null
   installations: number
-  aws: { accountId: string; verified: boolean; connectedAt: number } | null
+  aws: {
+    accountId: string
+    verified: boolean
+    connectedAt: number
+    clusterConnected: boolean
+    clusterId: string | null
+  } | null
 }
 
 export function toPublicSession(s: Session): PublicSession {
@@ -51,7 +66,15 @@ export function toPublicSession(s: Session): PublicSession {
     email: s.email,
     avatarUrl: s.avatarUrl,
     installations: s.installations,
-    aws: s.aws ? { accountId: s.aws.accountId, verified: s.aws.verified, connectedAt: s.aws.connectedAt } : null,
+    aws: s.aws
+      ? {
+          accountId: s.aws.accountId,
+          verified: s.aws.verified,
+          connectedAt: s.aws.connectedAt,
+          clusterConnected: !!s.aws.cluster,
+          clusterId: s.aws.cluster?.clusterId ?? null,
+        }
+      : null,
   }
 }
 

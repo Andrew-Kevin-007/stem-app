@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { waitUntil } from '@vercel/functions';
+import type { AuroraTarget } from '@/lib/aurora';
 
 export const maxDuration = 300;
 
@@ -44,36 +45,39 @@ async function handlePROpened(pr: any, repo: any) {
   const owner = repo.full_name.split('/')[0];
   const repoName = repo.name;
 
-  console.log(`PR #${prNumber} opened — creating cluster`);
+  console.log(`PR #${prNumber} opened — resolving tenant for ${owner}`);
 
   try {
-    const { RDSClient, RestoreDBClusterToPointInTimeCommand, DescribeDBClustersCommand } = await import('@aws-sdk/client-rds');
-    const rds = new RDSClient({ region: 'us-east-1' });
-    const cloneId = `stem-pr-${prNumber}-${Date.now()}`;
+    const { getUserConnectionByRepo } = await import('@/lib/dsql');
+    const { assumeTenantRole, operatorLogin } = await import('@/lib/tenant');
+    const { restoreCloneCluster } = await import('@/lib/aurora');
 
-    await rds.send(new RestoreDBClusterToPointInTimeCommand({
-      DBClusterIdentifier: cloneId,
-      SourceDBClusterIdentifier: process.env.AURORA_SOURCE_CLUSTER_ID!,
-      RestoreType: 'copy-on-write',
-      UseLatestRestorableTime: true,
-      DBSubnetGroupName: process.env.AURORA_SUBNET_GROUP!,
-      VpcSecurityGroupIds: [process.env.AURORA_SECURITY_GROUP_ID!],
-      Tags: [{ Key: 'stem-pr', Value: String(prNumber) }],
-    }));
+    // Resolve which AWS account this repo's clones land in. A connected tenant
+    // provisions in THEIR account; everyone else falls back to the operator's
+    // env-configured cluster (unchanged single-tenant behavior).
+    const connection = await getUserConnectionByRepo(owner);
 
-    let endpoint = '';
-    for (let i = 0; i < 40; i++) {
-      await new Promise(r => setTimeout(r, 5000));
-      const res = await rds.send(new DescribeDBClustersCommand({ DBClusterIdentifier: cloneId }));
-      const status = res.DBClusters?.[0]?.Status;
-      console.log(`Cluster: ${status}`);
-      if (status === 'available') {
-        endpoint = res.DBClusters![0].Endpoint!;
-        break;
-      }
+    if (!connection && owner.toLowerCase() !== operatorLogin().toLowerCase()) {
+      // Unknown owner with no AWS connection — nothing we can safely do.
+      // Return quietly; the webhook responder already 200'd to GitHub.
+      console.log(`No AWS connection for ${owner} — skipping PR #${prNumber}`);
+      return;
     }
 
-    if (!endpoint) throw new Error('Cluster timed out');
+    let target: AuroraTarget | undefined;
+    if (connection) {
+      const credentials = await assumeTenantRole(connection, `stem-pr-${prNumber}`);
+      target = {
+        credentials,
+        region: connection.aurora_region,
+        sourceClusterId: connection.aurora_cluster_id,
+        subnetGroup: connection.aurora_subnet_group,
+        securityGroupId: connection.aurora_sg_id,
+      };
+      console.log(`PR #${prNumber} → tenant ${owner} account ${connection.aws_account_id}`);
+    }
+
+    const { cloneId, endpoint } = await restoreCloneCluster(prNumber, target);
 
     const { saveBranch } = await import('@/lib/dsql');
     await saveBranch({
@@ -100,12 +104,21 @@ async function handlePRClosed(pr: any, repo: any) {
   console.log(`PR #${prNumber} closed — destroying clone`);
 
   try {
-    const { getBranchByPR, markBranchDestroyed } = await import('@/lib/dsql');
+    const { getBranchByPR, markBranchDestroyed, getUserConnectionByRepo } = await import('@/lib/dsql');
     const branch = await getBranchByPR(prNumber);
     if (!branch) return;
 
+    // Tear down in the SAME account the clone was created in.
+    const { assumeTenantRole } = await import('@/lib/tenant');
     const { deleteAuroraClone } = await import('@/lib/aurora');
-    await deleteAuroraClone(branch.clone_cluster_id);
+    const connection = await getUserConnectionByRepo(owner);
+    let target: AuroraTarget | undefined;
+    if (connection) {
+      const credentials = await assumeTenantRole(connection, `stem-pr-${prNumber}-del`);
+      target = { credentials, region: connection.aurora_region };
+    }
+
+    await deleteAuroraClone(branch.clone_cluster_id, target);
 
     const { deleteVercelEnvVar } = await import('@/lib/vercel');
     await deleteVercelEnvVar(branch.vercel_env_id);

@@ -189,14 +189,17 @@ export function DocsContent() {
               there is no workflow file to add.
             </Para>
             <Para>
-              <span className="text-foreground">Step 3 — Connect AWS.</span> Still on the Connect page: open AWS
-              CloudShell, paste the single command shown there, and copy back the Role ARN it prints. The command
-              deploys a CloudFormation stack containing one least-privilege IAM role:
+              <span className="text-foreground">Step 3 — Connect AWS (two parts).</span> Still on the Connect
+              page: first open AWS CloudShell, paste the single command shown there, and copy back the Role ARN it
+              prints. Then name your source Aurora cluster (cluster ID, subnet group, security group, region) so
+              STEM knows what to clone. Your PR clones provision in <span className="text-foreground">your</span>{" "}
+              account, billed to you. The command deploys a CloudFormation stack containing one least-privilege IAM
+              role:
             </Para>
             <CodeBlock title="what the role allows">{`describe / list      account-wide (RDS has no resource scoping here)
 clone create         RestoreDBClusterToPointInTime, CreateDBInstance
-delete               ONLY resources named stem-pr-* — your other
-                     clusters are untouchable by STEM
+modify / delete      ONLY resources named stem-pr-* — your source
+                     cluster is read-only to STEM, never modified
 trust                STEM's account only, gated by your ExternalId`}</CodeBlock>
             <Para>
               Open a pull request on a connected repo. stem-ci posts a comment with the branch endpoint when the

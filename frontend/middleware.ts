@@ -5,8 +5,13 @@ import { readSession, SESSION_COOKIE } from "@/lib/auth"
 // /api/auth/* and the public marketing pages stay open.
 export const config = {
   matcher: [
+    // Explicit bare paths + nested — some Next.js versions won't match bare
+    // "/dashboard" with "/dashboard/:path*" alone.
+    "/dashboard",
     "/dashboard/:path*",
+    "/connect",
     "/connect/:path*",
+    "/api/dashboard",
     "/api/dashboard/:path*",
     "/api/cron/:path*",
     "/api/aws/:path*",
