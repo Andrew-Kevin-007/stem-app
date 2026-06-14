@@ -10,8 +10,8 @@ gsap.registerPlugin(ScrollTrigger)
 /**
  * Trust section: an interactive masking inspector.
  * A single switch flips a data table between what production holds (RAW)
- * and what STEM serves to a branch (MASKED). Compliance line items and
- * count-up metrics flank it.
+ * and what STEM serves to a branch (MASKED). Compliance alignment line items
+ * and count-up metrics flank it.
  */
 const rows = [
   { col: "users.email", raw: "jane.doe@gmail.com", masked: "u_8f2a@masked.stem" },
@@ -22,11 +22,11 @@ const rows = [
 ]
 
 const compliance = [
-  { label: "GDPR Art. 32 — pseudonymisation", status: "ENFORCED" },
-  { label: "HIPAA §164.514 — de-identification", status: "ENFORCED" },
-  { label: "SOC 2 — least-privilege access", status: "ENFORCED" },
-  { label: "PCI DSS — cardholder data isolation", status: "ENFORCED" },
-  { label: "Audit log — every branch, every query", status: "ALWAYS ON" },
+  { label: "GDPR Art. 32 — pseudonymisation", status: "ALIGNED" },
+  { label: "HIPAA §164.514 — de-identification", status: "ALIGNED" },
+  { label: "SOC 2 — least-privilege access", status: "BY DESIGN" },
+  { label: "PCI DSS — cardholder data isolation", status: "BY DESIGN" },
+  { label: "Audit log — every branch state change", status: "ENABLED" },
 ]
 
 const metrics = [
@@ -147,7 +147,7 @@ export function TrustSection() {
         <div className="flex flex-col gap-10">
           <div className="border-l border-border/40 pl-6">
             <h3 className="font-mono text-[9px] uppercase tracking-[0.3em] text-muted-foreground mb-5">
-              compliance posture
+              compliance alignment
             </h3>
             <ul className="flex flex-col gap-3">
               {compliance.map((item) => (
