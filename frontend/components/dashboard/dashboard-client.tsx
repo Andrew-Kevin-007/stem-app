@@ -19,6 +19,7 @@ const EMPTY: DashboardData = { branches: [], poolSlots: [] }
 const TOAST_COPY: Partial<Record<BranchState, (pr: number) => string>> = {
   active: (pr) => `PR #${pr} is ACTIVE — endpoint live, PII masked`,
   instance_creating: (pr) => `PR #${pr} provisioning — instance spinning up`,
+  masking_failed: (pr) => `PR #${pr} held — no PII columns detected, masking config required`,
   destroyed: (pr) => `PR #${pr} closed — clone destroyed, env var removed`,
 }
 

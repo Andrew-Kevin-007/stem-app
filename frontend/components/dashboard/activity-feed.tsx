@@ -19,6 +19,7 @@ const TONE_BY_STATE: Record<Exclude<BranchState, "destroyed">, FeedEntry["tone"]
   active: "accent",
   instance_creating: "amber",
   cluster_ready: "muted",
+  masking_failed: "error",
 }
 
 /**

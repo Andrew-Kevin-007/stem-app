@@ -22,6 +22,7 @@ const TONE: Record<Exclude<BranchState, "destroyed">, { chip: string; dot: strin
   cluster_ready: { chip: "border-border/50 bg-card/40 text-muted-foreground", dot: "bg-muted-foreground", ping: false },
   instance_creating: { chip: "border-amber-500/40 bg-amber-500/5 text-amber-500", dot: "bg-amber-500", ping: true },
   active: { chip: "border-accent/50 bg-accent/5 text-accent", dot: "bg-accent", ping: true },
+  masking_failed: { chip: "border-destructive/50 bg-destructive/5 text-destructive", dot: "bg-destructive", ping: false },
 }
 
 function BranchChip({ branch }: { branch: Branch }) {

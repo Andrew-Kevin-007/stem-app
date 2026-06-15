@@ -7,9 +7,15 @@ export const maxDuration = 300
 
 export async function GET() {
   try {
+    // This route sits behind session-gating middleware, so a caller here is an
+    // authenticated operator. Forward CRON_SECRET so the backend's pipeline
+    // endpoint (also hit directly by Vercel Cron) accepts the manual trigger.
+    const headers: Record<string, string> = { ...backendHeaders() }
+    if (process.env.CRON_SECRET) headers["Authorization"] = `Bearer ${process.env.CRON_SECRET}`
+
     const res = await fetch(`${backendBase()}/api/cron/advance-pipeline`, {
       cache: "no-store",
-      headers: backendHeaders(),
+      headers,
       signal: AbortSignal.timeout(290_000),
     })
     if (!res.ok) {

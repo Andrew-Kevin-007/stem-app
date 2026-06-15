@@ -7,7 +7,7 @@ import type { Branch, BranchState, DashboardData, PoolSlot } from "./types"
 export const DASHBOARD_URL = "/api/dashboard"
 export const ADVANCE_PIPELINE_URL = "/api/cron/advance-pipeline"
 
-const BRANCH_STATES: BranchState[] = ["cluster_ready", "instance_creating", "active", "destroyed"]
+const BRANCH_STATES: BranchState[] = ["cluster_ready", "instance_creating", "active", "masking_failed", "destroyed"]
 const SLOT_STATES: PoolSlot["state"][] = ["warm", "in_use", "provisioning"]
 
 function asNumber(value: unknown, fallback = 0): number {

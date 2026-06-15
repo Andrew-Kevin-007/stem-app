@@ -1,6 +1,11 @@
 // Backend contract — shapes returned by GET /api/dashboard.
 
-export type BranchState = "cluster_ready" | "instance_creating" | "active" | "destroyed"
+export type BranchState =
+  | "cluster_ready"
+  | "instance_creating"
+  | "active"
+  | "masking_failed"
+  | "destroyed"
 
 export interface Branch {
   pr_number: number

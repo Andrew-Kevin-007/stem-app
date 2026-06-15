@@ -46,6 +46,26 @@ export async function postBranchComment(
   });
 }
 
+export async function postMaskingNeeded(owner: string, repo: string, prNumber: number, cloneId: string) {
+  const octokit = await getInstallationOctokit(owner, repo);
+  const body =
+    `## 🌿 Stem — Masking Configuration Needed\n\n` +
+    `The clone \`${cloneId}\` was provisioned, but Stem detected **no PII columns** ` +
+    `it recognized in this database, so the branch was **not** exposed — Stem will ` +
+    `never hand out a clone it could not anonymize.\n\n` +
+    `Add masking rules for this schema (or rename columns to recognized patterns ` +
+    `such as \`email\`, \`phone\`, \`ssn\`, \`*_name\`, \`card_number\`, \`address\`), ` +
+    `then reopen the PR.\n\n` +
+    `---\n*Posted by Stem · fail-closed: no unmasked data is ever served*`;
+
+  await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+    owner,
+    repo,
+    issue_number: prNumber,
+    body,
+  });
+}
+
 export async function postCloneDestroyed(owner: string, repo: string, prNumber: number) {
   const octokit = await getInstallationOctokit(owner, repo);
 

@@ -25,8 +25,8 @@ const STAGE_SEGMENTS = ["CLONE", "INSTANCE", "LIVE"] as const
 
 function StageTracker({ state }: { state: Exclude<Branch["state"], "destroyed"> }) {
   // cluster_ready: clone done, instance queued · instance_creating: instance in flight · active: all done
-  const doneCount = state === "active" ? 3 : 1
-  const currentIdx = state === "active" ? -1 : 1
+  const doneCount = state === "active" ? 3 : state === "masking_failed" ? 2 : 1
+  const currentIdx = state === "active" || state === "masking_failed" ? -1 : 1
   const inFlight = state === "instance_creating"
 
   return (
@@ -95,6 +95,7 @@ export function BranchCard({ branch, index }: { branch: Branch; index: number })
         "animate-in fade-in slide-in-from-bottom-4",
         config.tone === "accent" && "border-border/40 hover:border-accent/60",
         config.tone === "amber" && "border-amber-500/30 hover:border-amber-500/60",
+        config.tone === "destructive" && "border-destructive/40 hover:border-destructive/70",
         config.tone === "muted" && "border-border/30 opacity-70 hover:opacity-100 hover:border-border/60",
       )}
       style={{ animationDelay: `${index * 100}ms`, animationFillMode: "backwards", animationDuration: "600ms" }}
@@ -124,6 +125,7 @@ export function BranchCard({ branch, index }: { branch: Branch; index: number })
             "inline-flex shrink-0 items-center gap-2 border px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest",
             config.tone === "accent" && "border-accent/40 text-accent",
             config.tone === "amber" && "border-amber-500/40 text-amber-500",
+            config.tone === "destructive" && "border-destructive/50 text-destructive",
             config.tone === "muted" && "border-border text-muted-foreground",
           )}
         >
@@ -132,7 +134,7 @@ export function BranchCard({ branch, index }: { branch: Branch; index: number })
               <span
                 className={cn(
                   "absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
-                  config.tone === "accent" ? "bg-accent" : "bg-amber-500",
+                  config.tone === "accent" ? "bg-accent" : config.tone === "destructive" ? "bg-destructive" : "bg-amber-500",
                 )}
               />
             )}
@@ -141,6 +143,7 @@ export function BranchCard({ branch, index }: { branch: Branch; index: number })
                 "relative inline-flex h-1.5 w-1.5 rounded-full",
                 config.tone === "accent" && "bg-accent",
                 config.tone === "amber" && "bg-amber-500",
+                config.tone === "destructive" && "bg-destructive",
                 config.tone === "muted" && "bg-muted-foreground",
               )}
             />

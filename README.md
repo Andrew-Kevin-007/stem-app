@@ -1,183 +1,221 @@
-# 🌿 Stem — Isolated Database Branches for Every PR
+# Stem
 
-Every GitHub PR gets its own Aurora PostgreSQL copy-on-write clone, PII-anonymized in ~28 seconds — provisioned in **your** AWS account, torn down on close.
+**Isolated, PII-anonymized database branches for every pull request.**
 
-[![status](https://img.shields.io/badge/status-production-success)](https://stem-frontend-six.vercel.app) · Built for **H0: Hack the Zero Stack** (Vercel + AWS Databases)
+Stem gives each GitHub pull request its own Aurora PostgreSQL copy-on-write clone, anonymizes the personal data inside it, and tears it down when the PR closes. Clones are provisioned in the customer's own AWS account through a scoped cross-account role, so production-shaped data never leaves the customer's boundary and no raw PII is exposed to reviewers.
 
----
-
-## What It Does
-
-Stem is a multi-tenant DevTool for teams in regulated industries (GDPR / HIPAA / SOC 2) who can't hand production data to every contractor and preview deployment. When a PR opens, Stem restores an Aurora copy-on-write clone of the source cluster (`RestoreDBClusterToPointInTime`), bulk-replaces PII columns with realistic fake data, injects the clone's `DATABASE_URL` into the preview environment, and posts a summary comment on the PR through a GitHub App. When the PR closes, every resource is destroyed.
-
-Each customer connects their **own** GitHub account and their **own** AWS account: clones provision in the customer's account against the customer's cluster, billed to them, isolated from every other tenant.
-
-## Live Instance
-
-Dashboard: **<https://stem-frontend-six.vercel.app>** · Health: `/api/health`
-
-Sign in with GitHub, then complete the three-step Connect flow (install App → connect AWS role → name your Aurora cluster). Open a PR on a connected repo and watch the pipeline run live.
+Built for the H0 hackathon (Vercel and AWS Databases), engineered as a deployable multi-tenant product.
 
 ---
 
-## Architecture
+## The problem
+
+Teams that handle regulated data (GDPR, HIPAA, SOC 2, PCI) face a forced choice when reviewing pull requests:
+
+- **Test against an empty seed database** and miss the bugs that only appear at production data volumes — slow queries, lock contention, real edge-case rows.
+- **Test against production** and expose customer PII to every reviewer, contractor, and preview deployment attached to the PR.
+
+Stem removes the trade-off. Every PR gets a full-shaped clone of production with the personal data replaced by realistic fakes, ready in roughly 30 seconds, destroyed automatically on merge or close.
+
+---
+
+## How it works
 
 ```
 GitHub PR opened
-      │  (HMAC-verified webhook)
-      ▼
-Webhook (Next.js API Route)
-  ├─ Resolve repo owner → tenant AWS connection (DSQL)
-  ├─ STS AssumeRole into the tenant's account (ExternalId-gated, 15 min)
-  ├─ RestoreDBClusterToPointInTime (copy-on-write) in THEIR cluster
-  └─ DSQL: branch state = cluster_ready
-      │
-      ▼
-Cron: /api/cron/advance-pipeline   (re-assumes the role each tick)
-  Stage 1: cluster_ready      → CreateDBInstance → instance_creating
-  Stage 2: instance available →
-    ├─ ModifyDBCluster: reset clone master password (scoped to stem-pr-*)
-    ├─ Bulk PII UPDATE inside the clone
-    ├─ Inject DATABASE_URL (operator path) + post PR comment
-    └─ branch state = active
-      │
-      ▼
-PR merged/closed
-  └─ AssumeRole → DeleteDBInstance + DeleteDBCluster → state = destroyed
+      |  (HMAC-verified webhook)
+      v
+Webhook (Next.js API route)
+  - Resolve repo owner to their stored AWS connection (Aurora DSQL)
+  - STS AssumeRole into the owner's AWS account (ExternalId-scoped, 15 min)
+  - RestoreDBClusterToPointInTime: copy-on-write clone of their source cluster
+  - Persist branch state = cluster_ready
+      |
+      v
+Cron / operator trigger: /api/cron/advance-pipeline  (re-assumes the role each run)
+  Stage 1: cluster_ready       -> CreateDBInstance        -> instance_creating
+  Stage 2: instance available  -> reset clone master password (scoped to stem-pr-*)
+                               -> detect and mask PII inside the clone
+                               -> if zero PII columns matched: HOLD (fail closed)
+                               -> otherwise post PR comment + expose endpoint -> active
+      |
+      v
+PR merged or closed
+  - AssumeRole -> DeleteDBInstance + DeleteDBCluster -> destroyed
 ```
 
-**Two AWS databases, two jobs:**
-- **Aurora PostgreSQL Serverless v2** — the data plane. Copy-on-write clones give each PR full production-shaped data without duplicating storage.
-- **Aurora DSQL** — the control plane. Branch state and per-user AWS connections live in a serverless, IAM-authenticated store with no connection pool to manage.
+Two AWS databases, two responsibilities:
 
-The browser only ever talks to the frontend; the frontend's API routes proxy server-to-server to the backend, so there is no CORS surface and the backend needs no CORS config.
+- **Aurora PostgreSQL Serverless v2** is the data plane. Copy-on-write clones share unchanged pages with the source cluster, so a clone of a multi-terabyte database moves almost no data and costs storage only for pages the branch modifies. This is what makes sub-30-second provisioning possible.
+- **Aurora DSQL** is the control plane. Branch state and per-user AWS connections live in a serverless, IAM-authenticated store with no connection pool to operate.
 
-## Multi-Tenancy & Isolation
+The browser only ever talks to the frontend. The frontend's API routes proxy server-to-server to the backend, so there is no cross-origin surface and the backend requires no CORS configuration.
+
+---
+
+## Multi-tenancy and isolation
+
+Stem is multi-tenant by account, not by row in a shared database.
 
 | Boundary | Mechanism |
-|---|---|
-| **Compute / data** | Each tenant's clones run in **their** AWS account via cross-account STS `AssumeRole`. STEM holds no tenant long-lived credentials — only a role ARN + ExternalId. |
-| **Blast radius** | The role's destructive actions (`Delete*`, `ModifyDBCluster`) are IAM-scoped to `stem-pr-*` resources. STEM **cannot** touch a tenant's source cluster or any non-Stem resource. |
-| **Confused deputy** | Every role assumption requires a per-user, server-derived `ExternalId`. |
-| **Dashboard** | Branch queries are scoped to the signed-in user's GitHub login (`?owner=`). One tenant can never see another's branches. |
-| **Operator** | `STEM_OPERATOR_LOGIN`'s repos use the env-configured cluster (original single-tenant path), so the operator's own demo is independent of any tenant. |
+| --- | --- |
+| Compute and data | Each tenant's clones run in that tenant's own AWS account via cross-account STS `AssumeRole`. Stem stores no long-lived tenant credentials — only a role ARN and an ExternalId. |
+| Blast radius | The role's destructive and modifying permissions (`DeleteDBCluster`, `DeleteDBInstance`, `ModifyDBCluster`) are IAM-scoped to `stem-pr-*` resources. Stem cannot read, modify, or delete the tenant's source cluster or any non-Stem resource. |
+| Confused deputy | Every role assumption requires a per-user, server-derived ExternalId. |
+| Dashboard | Branch queries are scoped to the authenticated user's GitHub login. One tenant cannot enumerate another's branches. |
+| Operator | The operator login uses an environment-configured cluster, keeping the single-tenant demo path independent of any customer. |
 
-## Security Model
+---
 
-- **Transport** — HSTS (`max-age=63072000; includeSubDomains; preload`) + a Content-Security-Policy (`frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`), `X-Frame-Options: DENY`, `nosniff`, restrictive `Referrer-Policy` and `Permissions-Policy`, applied to every response.
-- **Sessions** — AES-256-GCM **sealed** `httpOnly` `SameSite=Lax` cookies (12 h TTL). The GitHub token rides inside the encrypted payload and is never exposed to the browser. Decryption **fails closed in production**: if no `AUTH_ENCRYPTION_KEY`/`SESSION_SECRET` is set, auth-bearing requests error rather than fall back to a weak key.
-- **OAuth** — GitHub App user-authorization with a single-use, sealed `state` cookie for CSRF; the code↔token exchange happens server-side with the client secret; minimal `read:user user:email` scopes (repo access comes from installing the App, not scopes). Internal errors are logged, never reflected into redirect URLs.
-- **Webhook** — HMAC-SHA256 signature verified with a length guard + constant-time compare; a missing secret or malformed header yields a clean 401, never a 500.
-- **Internal write path** — `/api/connections` (which controls where a tenant's clones provision) is guarded by a shared `STEM_INTERNAL_TOKEN`, compared in constant time and **fail-closed in production**.
-- **Least privilege** — the customer IAM role grants account-wide `Describe*` only (RDS has no resource scoping there); create is unscoped by necessity; modify/delete are locked to `stem-pr-*`.
-- **No dangerous endpoints** — there is no unauthenticated provisioning route; every state-changing route requires a session, the internal token, or a valid webhook signature.
+## Data safety: anonymization that fails closed
+
+The anonymizer runs inside the clone before any credentials are issued. It operates in two layers:
+
+1. **Explicit rules** for known high-confidence columns.
+2. **Generic detection** across any schema: it scans `information_schema` and masks text columns whose names match PII patterns (email, phone, SSN/national ID/tax ID, card number, names, address, postal code, IP address, date of birth, secrets/tokens) with type-appropriate fake data.
+
+The design bias is deliberate: writing fake data into a non-sensitive column of a throwaway clone is harmless, while leaving one real PII column unmasked is a breach. Over-masking is acceptable; under-masking is not.
+
+**Fail closed.** If the anonymizer scans a populated schema and matches zero PII columns, the branch is **not** exposed. It moves to a `masking_failed` state, no connection string is published, and the PR receives a comment explaining that masking configuration is required. Stem never hands out a clone it could not anonymize.
+
+| Category | Replacement |
+| --- | --- |
+| email | `user_NNNNNN@example.com` |
+| phone | random E.164-style US number |
+| ssn / national id / tax id | `NNN-NN-NNNN` |
+| card number | `****-****-****-NNNN` |
+| name | value from a fixed synthetic pool |
+| address | `NNN Example St, Anytown USA 10001` |
+| postal code | random 5-digit |
+| ip address | RFC 1918 random address |
+| date of birth | fixed placeholder date |
+| password / secret / token | `redacted_<hash>` |
+
+Rules and patterns live in [`lib/anonymizer.ts`](lib/anonymizer.ts) and extend to any table or column.
+
+---
+
+## Security model
+
+- **Transport.** HSTS (two years, `includeSubDomains`, `preload`) and a Content-Security-Policy (`frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, scoped script/img/connect sources), plus `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and restrictive referrer and permissions policies on every response.
+- **Sessions.** AES-256-GCM sealed, `httpOnly`, `SameSite=Lax` cookies with a 12-hour TTL. The GitHub token is carried inside the encrypted payload and never reaches the browser. Decryption fails closed in production: with no `AUTH_ENCRYPTION_KEY` configured, authenticated requests error rather than fall back to a weak key.
+- **OAuth.** GitHub App user authorization with a single-use, sealed `state` cookie for CSRF. The code-to-token exchange happens server-side with the client secret; scopes are minimal (`read:user user:email`) because repository access comes from installing the App, not from OAuth scopes. Internal errors are logged server-side and never reflected into redirect URLs.
+- **Webhook.** HMAC-SHA256 signatures verified with a length guard and constant-time comparison; a missing secret or malformed header returns 401, never 500.
+- **Pipeline trigger.** `/api/cron/advance-pipeline` requires a `CRON_SECRET` bearer token (sent by Vercel Cron and forwarded by the session-gated dashboard proxy). Unauthenticated callers are rejected; with no secret configured it is disabled in production.
+- **Internal write path.** `/api/connections`, which controls where a tenant's clones provision, is guarded by a shared `STEM_INTERNAL_TOKEN`, compared in constant time, and fails closed in production.
+- **Least privilege.** The customer IAM role grants account-wide `Describe*` only (RDS does not support resource scoping for those), creation actions where required, and modify/delete locked to `stem-pr-*`.
+- **No unauthenticated state-changing endpoints.** Every route that mutates state requires a session, the internal token, a valid webhook signature, or the cron secret.
+- **Database TLS.** The masking connection uses TLS; supply `AURORA_CA_CERT` (the RDS CA bundle) to enforce full certificate verification.
+
+---
 
 ## Stack
 
-Next.js 16 App Router · TypeScript (strict) · Tailwind · Vercel · AWS Aurora PostgreSQL Serverless v2 · Aurora DSQL · GitHub App (`@octokit/app`) · `@aws-sdk/client-rds` · `@aws-sdk/client-sts` · `@aws-sdk/dsql-signer`
+Next.js 16 (App Router), TypeScript (strict), Tailwind CSS, Vercel, AWS Aurora PostgreSQL Serverless v2, Aurora DSQL, GitHub App (`@octokit/app`), `@aws-sdk/client-rds`, `@aws-sdk/client-sts`, `@aws-sdk/dsql-signer`.
 
-## Deploy
+---
 
-Two Vercel projects: **backend** (repo root) and **frontend** (`frontend/`).
+## Deployment
+
+Two Vercel projects: the backend (repository root) and the frontend (`frontend/`).
 
 ```bash
 git clone https://github.com/Andrew-Kevin-007/stem-app
 cd stem-app
 
-# 1) Backend
-cp .env.example .env.local            # fill in — see table below
+# Backend
+cp .env.example .env.local            # fill in per the table below
 npm install
 npx vercel --prod
 
-# 2) Frontend
+# Frontend
 cd frontend
 cp .env.example .env.local            # set NEXT_PUBLIC_API_BASE to the backend URL
 npm install
 npx vercel --prod
 ```
 
-**GitHub App** (one-time): create an App with `Pull requests: write` + `Contents: read`, subscribe to the `pull_request` webhook, point the webhook at `{backend}/api/webhook/github`, set the OAuth **Callback URL** to `{frontend}/api/auth/github/callback`, generate a client secret + private key.
+**GitHub App (one-time).** Create a GitHub App with `Pull requests: write` and `Contents: read`, subscribe it to the `pull_request` webhook, point the webhook at `{backend}/api/webhook/github`, set the OAuth callback URL to `{frontend}/api/auth/github/callback`, and generate a client secret and a private key.
 
-**`STEM_INTERNAL_TOKEN` must be identical on both projects.** After deploy, hit `/api/health` on each — `ready: true` (frontend) and all-true `config` (backend) means you're set.
+`STEM_INTERNAL_TOKEN` and `CRON_SECRET` must be identical on both projects. After deploying, request `/api/health` on each: the frontend should report `ready: true` and the backend should report an all-true `config` object.
 
-> Existing tenants who deployed their IAM role before the `ModifyDBCluster` permission was added must re-run the CloudShell command from the Connect page once.
+### Backend environment
 
-### Environment — backend (repo root)
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Yes | Control-plane credentials (DSQL, operator cluster, STS) |
+| `DSQL_ENDPOINT` | Yes | Aurora DSQL endpoint (no scheme) |
+| `AURORA_SOURCE_CLUSTER_ID`, `AURORA_SUBNET_GROUP`, `AURORA_SECURITY_GROUP_ID` | Operator path | Operator's source cluster for the operator login's repos |
+| `AURORA_MASTER_USER`, `AURORA_MASTER_PASSWORD` | Operator path | Operator clone database credentials |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | Yes | GitHub App identity and webhook HMAC |
+| `VERCEL_TOKEN`, `VERCEL_PROJECT_ID` | Operator path | `DATABASE_URL` injection into the preview project |
+| `STEM_INTERNAL_TOKEN` | Yes | Guards `/api/connections`; must match the frontend |
+| `CRON_SECRET` | Yes | Guards the pipeline trigger; must match the frontend |
+| `STEM_OPERATOR_LOGIN` | No | Login that uses the environment cluster (default `Andrew-Kevin-007`) |
+| `STEM_TENANT_DB_SECRET` | No | Derives per-clone master passwords (falls back to the webhook secret) |
+| `STEM_TEAM_ID` | No | DSQL `team_id` (defaults to the all-zeros UUID) |
+| `AURORA_CA_CERT` | No | RDS CA bundle (PEM) to enforce TLS verification during masking |
 
-| Var | Required | Purpose |
-|---|---|---|
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | ✓ | Control-plane creds (DSQL, operator cluster, STS) |
-| `AWS_REGION` | ✓ | Default `us-east-1` |
-| `DSQL_ENDPOINT` | ✓ | Aurora DSQL endpoint (no `https://`) |
-| `AURORA_SOURCE_CLUSTER_ID` / `AURORA_SUBNET_GROUP` / `AURORA_SECURITY_GROUP_ID` | operator path | Operator's source cluster for `STEM_OPERATOR_LOGIN`'s repos |
-| `AURORA_MASTER_USER` / `AURORA_MASTER_PASSWORD` | operator path | Operator clone DB credentials |
-| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` | ✓ | GitHub App identity + webhook HMAC |
-| `VERCEL_TOKEN` / `VERCEL_PROJECT_ID` | operator path | `DATABASE_URL` injection into the preview project |
-| `STEM_INTERNAL_TOKEN` | ✓ | Guards `/api/connections`; must match frontend |
-| `STEM_OPERATOR_LOGIN` | – | Login that uses the env cluster (default `Andrew-Kevin-007`) |
-| `STEM_TENANT_DB_SECRET` | – | Derives per-clone master passwords (falls back to webhook secret) |
-| `STEM_TEAM_ID` | – | DSQL `team_id` (defaults to all-zeros UUID) |
+### Frontend environment
 
-### Environment — frontend (`frontend/`)
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_BASE` | Yes | Backend URL (no trailing slash) |
+| `APP_BASE_URL` | Yes in production | Public frontend origin for OAuth redirect URIs |
+| `AUTH_ENCRYPTION_KEY` (or `SESSION_SECRET`) | Yes | 32+ random bytes; seals session cookies. Without it, the app fails closed in production. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Yes | GitHub App OAuth credentials |
+| `GITHUB_APP_SLUG` | No | Install-link slug (defaults to the deployed App) |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Yes | Used to verify a tenant's role and cluster via STS |
+| `STEM_AWS_ACCOUNT_ID` | No | Trusted principal; auto-derived via STS `GetCallerIdentity` |
+| `STEM_AWS_EXTERNAL_ID_SECRET` | No | ExternalId derivation (falls back to the session secret) |
+| `STEM_INTERNAL_TOKEN` | Yes | Must match the backend |
+| `CRON_SECRET` | Yes | Must match the backend |
+| `STEM_PROTECTION_BYPASS` | No | Vercel Deployment Protection bypass, if the backend has SSO enabled |
 
-| Var | Required | Purpose |
-|---|---|---|
-| `NEXT_PUBLIC_API_BASE` | ✓ | Backend URL (no trailing slash) |
-| `APP_BASE_URL` | ✓ in prod | Public frontend origin for OAuth redirect URIs |
-| `AUTH_ENCRYPTION_KEY` (or `SESSION_SECRET`) | ✓ | 32+ random bytes; seals session cookies. **App fails closed without it in prod.** |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | ✓ | GitHub App OAuth credentials |
-| `GITHUB_APP_SLUG` | – | Install-link slug (defaults to the deployed App) |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | ✓ | Used to STS `AssumeRole` when verifying a tenant's role/cluster |
-| `STEM_AWS_ACCOUNT_ID` | – | Trusted principal; auto-derived via STS `GetCallerIdentity` |
-| `STEM_AWS_EXTERNAL_ID_SECRET` | – | ExternalId derivation (falls back to session secret) |
-| `STEM_INTERNAL_TOKEN` | ✓ | Must match the backend |
-| `STEM_PROTECTION_BYPASS` | – | Vercel Deployment Protection bypass, if the backend has SSO on |
+---
 
-## How the Pipeline Works
+## Onboarding (per tenant)
 
-1. PR opened/reopened → webhook (HMAC verified) → AssumeRole → `RestoreDBClusterToPointInTime` (~10 s) → `cluster_ready`
-2. Cron / **Advance Pipeline** button → `CreateDBInstance` (~5–10 min) → `instance_creating`
-3. Cron again → instance `available` → reset clone password → bulk PII `UPDATE` → PR comment → `active`
-4. PR closed → `DeleteDBInstance` + `DeleteDBCluster` → `destroyed`
+1. **Sign in with GitHub.** The OAuth flow reads only the public profile.
+2. **Install the Stem App** on the repositories that should receive database branches.
+3. **Connect AWS.** From the Connect page, run the single AWS CloudShell command shown there. It deploys a CloudFormation stack containing one least-privilege role and prints the role ARN. Paste the ARN back; Stem verifies it with `AssumeRole`.
+4. **Name the Aurora cluster.** Provide the source cluster ID, subnet group, security group, and region. Stem confirms the role can describe the cluster before saving.
 
-The state machine is staged across cron runs because a single serverless invocation can't outlive instance provisioning. On Vercel Hobby (daily cron), use the **Advance Pipeline** button in the dashboard's operator console to step it manually for a demo.
+Open a pull request on a connected repository. Stem comments with the branch endpoint once masking completes.
 
-## PII Anonymization
-
-| Column | Replacement |
-|---|---|
-| `users.email` | random `user_XXXXXX@example.com` |
-| `users.phone` | random US phone |
-| `users.full_name` | random from a fixed pool of names |
-| `payments.card_number` | `****-****-****-XXXX` |
-| `payments.billing_address` | `NNN Example St, Anytown USA 10001` |
-
-Defined in [`lib/anonymizer.ts`](lib/anonymizer.ts), applied inside the clone before any credentials are issued. The pass is schema-tolerant: tables/columns a tenant doesn't have are skipped (per-rule savepoints), so it runs against arbitrary schemas without failing.
+---
 
 ## Operations
 
-- **Health** — `GET /api/health` on both apps returns `ok` plus config-presence booleans (never secret values). The frontend probe also reports backend reachability. Point an uptime monitor here.
-- **Monitoring** — pipeline and auth errors are `console.error`'d to Vercel function logs; the dashboard event stream shows live state transitions.
-- **Cron** — `vercel.json` schedules `/api/cron/advance-pipeline` daily (Hobby ceiling); upgrade the plan for minute-level cron in production.
+- **Health.** `GET /api/health` on both applications returns `ok` plus configuration-presence booleans (never secret values). The frontend probe also reports backend reachability. Use these for uptime monitoring and as the post-deployment checklist.
+- **Cron.** `vercel.json` schedules `/api/cron/advance-pipeline` daily (the Vercel Hobby ceiling). On a paid plan, schedule it every few minutes for automatic progression; otherwise use the dashboard's Advance Pipeline control during a demo.
+- **Logging.** Pipeline and authentication errors are written to the platform function logs. The dashboard event stream shows live state transitions.
+
+---
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| Sign-in shows "not configured" | Set `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `AUTH_ENCRYPTION_KEY`, redeploy. Check `/api/health`. |
-| `state_mismatch` on sign-in | Retry in the same tab; allow cookies for the dashboard origin. |
-| AWS connect can't assume the role | IAM is eventually consistent — wait ~30 s and retry; confirm the stack deployed in the intended account and the ExternalId matches. |
-| Cluster step fails | Confirm cluster ID + region and that the role allows `rds:DescribeDBClusters`. |
-| `stem-ci` never comments | Install the App on the repo (Connect page); no workflow file is needed. |
-| Branch stuck in QUEUED | Source cluster hit Aurora's 15-clone limit — close stale PRs; queue drains FIFO. |
+| Symptom | Resolution |
+| --- | --- |
+| Sign-in reports "not configured" | Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `AUTH_ENCRYPTION_KEY`; redeploy. Confirm with `/api/health`. |
+| `state_mismatch` during sign-in | Retry in the same tab and allow cookies for the dashboard origin. |
+| AWS connect cannot assume the role | IAM is eventually consistent; wait around 30 seconds and retry. Confirm the stack deployed in the intended account and the ExternalId matches. |
+| Cluster step fails | Verify the cluster ID and region, and that the role allows `rds:DescribeDBClusters`. |
+| Branch shows "Needs Masking" | The schema had no columns Stem recognized as PII. Add masking rules or align column names, then reopen the PR. Stem withheld the clone intentionally. |
+| stem-ci never comments | Install the App on the repository from the Connect page. No workflow file is required. |
+| Branch stuck in Queued | The source cluster reached Aurora's 15-clone limit. Close stale PRs; the queue drains in order. |
 
-## Known Constraints
+---
 
-- **Vercel Hobby cron is daily** — use the Advance Pipeline button for demos, or upgrade for automatic minute-level progression.
-- **Aurora clone limit** is 15 per source cluster; excess PRs queue.
-- Aurora DSQL has no FK constraints and limited `ALTER TABLE`; `numeric` columns serialize as strings over node-postgres (the frontend normalizes payloads in `frontend/lib/api.ts`).
-- Tenant clone anonymization requires the clone's master **username** + **database** name (collected on the Connect page, defaulted to `postgres`).
+## Known constraints
 
-## Hackathon
+- Vercel Hobby cron runs daily; use the Advance Pipeline control for demos or upgrade for automatic minute-level progression.
+- Aurora allows up to 15 clones per source cluster; additional PRs queue.
+- Aurora DSQL has no foreign-key constraints and limited `ALTER TABLE` support; numeric columns serialize as strings over the PostgreSQL driver, and the frontend normalizes all payloads.
+- Tenant clone anonymization requires the clone's master username and database name, collected on the Connect page (both default to `postgres`).
 
-Built for **H0: Hack the Zero Stack** — Vercel + AWS Databases. Submission deadline June 30, 2026.
+---
+
+## License and status
+
+Hackathon submission for H0 (Vercel and AWS Databases), submission deadline June 30, 2026. Engineered for real-world multi-tenant deployment.
