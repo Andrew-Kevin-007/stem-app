@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Check, Copy, Download, ExternalLink, Github, Cloud, Database, ShieldCheck, Terminal } from "lucide-react"
+import { Check, Copy, Download, ExternalLink, Github, Cloud, Database, ShieldCheck, Terminal, Info, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { PublicSession } from "@/lib/auth"
 
@@ -182,6 +182,20 @@ export function ConnectClient({
           Two grants and you&apos;re live: repository access (clone-per-PR + comments) and scoped
           access to the AWS account that hosts your source database.
         </p>
+      </div>
+
+      {/* Prerequisites */}
+      <div className="flex items-start gap-3 border border-border/40 bg-card/20 p-5">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">Before you start</p>
+          <ul className="mt-2 flex flex-col gap-1.5 font-mono text-[11px] text-muted-foreground leading-relaxed">
+            <li>· An <span className="text-foreground/80">Aurora PostgreSQL Serverless v2</span> cluster in your AWS account (this is the database STEM clones).</li>
+            <li>· Its <span className="text-foreground/80">cluster ID, DB subnet group, and VPC security group</span> — copy them from the RDS console.</li>
+            <li>· Permission to run one <span className="text-foreground/80">AWS CloudShell</span> command (creates a scoped IAM role; no keys leave your account).</li>
+            <li>· A <span className="text-foreground/80">GitHub repository</span> to install the STEM App on.</li>
+          </ul>
+        </div>
       </div>
 
       {/* Step 1 — GitHub App install */}
@@ -484,6 +498,24 @@ export function ConnectClient({
         </div>
       </section>
 
+      {/* What happens next — surfaced once both grants are complete */}
+      {githubConnected && clusterConnected && (
+        <section className="border border-accent/30 bg-accent/5 p-6 md:p-8">
+          <h2 className="inline-flex items-center gap-2 font-[var(--font-bebas)] text-2xl tracking-tight text-accent">
+            <Check className="h-5 w-5" aria-hidden="true" /> You&apos;re all set — test it
+          </h2>
+          <p className="mt-2 font-mono text-xs text-muted-foreground leading-relaxed">
+            STEM now reacts to pull requests on your connected repos. To see your first branch:
+          </p>
+          <ol className="mt-4 flex flex-col gap-2 font-mono text-[11px] text-muted-foreground leading-relaxed">
+            <li><span className="text-accent">1.</span> Make any change on a new branch in a connected repo and open a pull request.</li>
+            <li><span className="text-accent">2.</span> Within ~30s the branch appears on the dashboard, moving QUEUED → PROVISIONING → ACTIVE.</li>
+            <li><span className="text-accent">3.</span> Expand the card for the masked database endpoint and the anonymized columns.</li>
+            <li><span className="text-accent">4.</span> Close or merge the PR — the clone is destroyed automatically.</li>
+          </ol>
+        </section>
+      )}
+
       {/* Continue */}
       <div className="flex items-center justify-between border-t border-border/20 pt-6">
         <span className="inline-flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
@@ -494,7 +526,7 @@ export function ConnectClient({
           href="/dashboard"
           className="inline-flex items-center gap-3 bg-foreground px-6 py-3 font-mono text-xs uppercase tracking-widest text-background hover:bg-accent hover:text-accent-foreground transition-all duration-200"
         >
-          Go to dashboard →
+          Go to dashboard <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
       </div>
     </>

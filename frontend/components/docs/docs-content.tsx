@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 const toc = [
   { id: "overview", label: "Overview" },
   { id: "quickstart", label: "Quickstart" },
+  { id: "first-branch", label: "Your First Branch" },
   { id: "configuration", label: "Configuration" },
   { id: "anonymization", label: "Anonymization" },
   { id: "architecture", label: "Architecture" },
@@ -211,7 +212,46 @@ trust                STEM's account only, gated by your ExternalId`}</CodeBlock>
             </Para>
           </DocSection>
 
-          <DocSection id="configuration" number="03" title="CONFIGURATION">
+          <DocSection id="first-branch" number="03" title="YOUR FIRST BRANCH">
+            <Para>
+              Once GitHub and AWS are connected, STEM reacts to pull requests automatically. Walk through the
+              full loop once to see it work end to end:
+            </Para>
+            <Para>
+              <span className="text-foreground">1 — Make a change.</span> In a repository where you installed the
+              STEM App, create a branch and edit any file (a single README line is enough). Commit and push it.
+            </Para>
+            <Para>
+              <span className="text-foreground">2 — Open a pull request</span> against the default branch. STEM&apos;s
+              webhook fires the instant the PR opens — no workflow file, no CI step to add.
+            </Para>
+            <Para>
+              <span className="text-foreground">3 — Watch the dashboard.</span> Within roughly 30 seconds a card
+              appears and advances through the states below. On the Vercel free plan the pipeline steps on a daily
+              cron, so use the <span className="text-foreground">Advance Pipeline</span> button in the operator
+              console to move it instantly during a demo.
+            </Para>
+            <CodeBlock title="branch states">{`QUEUED         clone requested, waiting for the pipeline
+PROVISIONING   Aurora clone attaching, PII masking running
+ACTIVE         credentials issued, endpoint posted to the PR
+NEEDS MASKING  no PII columns detected — clone withheld (fail closed)`}</CodeBlock>
+            <Para>
+              <span className="text-foreground">4 — Use the branch.</span> Expand the card for the masked database
+              endpoint and the list of anonymized columns, or read them from the comment STEM posts on the PR.
+              Point your preview deployment or local app at that connection string.
+            </Para>
+            <Para>
+              <span className="text-foreground">5 — Close or merge the PR.</span> STEM destroys the clone and every
+              associated AWS resource automatically — there is nothing to clean up and no lingering cost.
+            </Para>
+            <Para>
+              If the card shows <span className="text-foreground">NEEDS MASKING</span>, STEM scanned the schema and
+              recognized no PII columns, so it withheld the clone by design. Align your column names with the
+              recognized patterns (see Anonymization) or add explicit rules, then reopen the PR.
+            </Para>
+          </DocSection>
+
+          <DocSection id="configuration" number="04" title="CONFIGURATION">
             <Para>
               <span className="text-accent uppercase tracking-widest text-[10px]">Roadmap — </span>
               per-repo configuration ships as a <span className="text-foreground">stem.config.json</span> at the
@@ -241,7 +281,7 @@ trust                STEM's account only, gated by your ExternalId`}</CodeBlock>
             </dl>
           </DocSection>
 
-          <DocSection id="anonymization" number="04" title="ANONYMIZATION">
+          <DocSection id="anonymization" number="05" title="ANONYMIZATION">
             <Para>
               The masking pass runs inside the clone before any credentials exist, so raw PII is never reachable
               from a branch. Columns are classified by name patterns, PostgreSQL type, and a sampling heuristic, then
@@ -279,7 +319,7 @@ rules:
     strategy: passthrough`}</CodeBlock>
           </DocSection>
 
-          <DocSection id="architecture" number="05" title="ARCHITECTURE">
+          <DocSection id="architecture" number="06" title="ARCHITECTURE">
             <Para>STEM is built on two AWS database services with deliberately separated responsibilities:</Para>
             <Para>
               <span className="text-foreground">Aurora PostgreSQL — the data plane.</span> Branches are Aurora
@@ -299,7 +339,7 @@ rules:
             </Para>
           </DocSection>
 
-          <DocSection id="lifecycle" number="06" title="BRANCH LIFECYCLE">
+          <DocSection id="lifecycle" number="07" title="BRANCH LIFECYCLE">
             <Para>Every branch moves through a strict state machine, visible live on the dashboard:</Para>
             <CodeBlock title="states">{`queued        PR opened, waiting for warm-pool capacity
 provisioning  Aurora clone attaching, masking pass running
@@ -311,7 +351,7 @@ destroyed     PR merged/closed or TTL expired; storage reclaimed`}</CodeBlock>
             </Para>
           </DocSection>
 
-          <DocSection id="limits" number="07" title="LIMITS & REGIONS">
+          <DocSection id="limits" number="08" title="LIMITS & REGIONS">
             <dl className="flex flex-col gap-3">
               <Definition term="Clone limit">
                 Aurora supports up to 15 clones per source cluster. STEM queues PRs beyond that and activates them

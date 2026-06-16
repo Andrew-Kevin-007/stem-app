@@ -42,7 +42,7 @@ export default async function DashboardPage() {
       <div className="relative z-10 flex min-h-screen flex-col">
         <DashboardHeader />
         <OnboardingBanner status={status} />
-        <DashboardClient />
+        <DashboardClient testRepo={isOperator ? "Andrew-Kevin-007/stem-test-repo" : undefined} />
       </div>
     </main>
   )

@@ -12,6 +12,7 @@ import { PoolSlots } from "@/components/dashboard/pool-slots"
 import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { AdvancePipeline } from "@/components/dashboard/advance-pipeline"
 import { AnimatedNumber } from "@/components/dashboard/animated-number"
+import { FirstRunGuide } from "@/components/dashboard/first-run-guide"
 import { AlertTriangle } from "lucide-react"
 
 const EMPTY: DashboardData = { branches: [], poolSlots: [] }
@@ -50,7 +51,7 @@ function useStateToasts(data: DashboardData | undefined) {
   }, [data])
 }
 
-export function DashboardClient() {
+export function DashboardClient({ testRepo }: { testRepo?: string }) {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [flash, setFlash] = useState(false)
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -213,10 +214,7 @@ export function DashboardClient() {
             ))}
           </div>
         ) : (
-          <div className="border border-dashed border-border/40 py-24 text-center">
-            <p className="font-mono text-sm uppercase tracking-[0.3em] text-foreground/80 mb-3">NO ACTIVE BRANCHES</p>
-            <p className="font-mono text-xs text-muted-foreground">Open a PR on a connected repo to trigger STEM</p>
-          </div>
+          <FirstRunGuide testRepo={testRepo} />
         )}
       </section>
 

@@ -57,6 +57,14 @@ const runbooks = [
 
 const faqs = [
   {
+    q: "I finished setup but the dashboard is empty. What now?",
+    a: "That's expected — STEM only creates branches in response to pull requests. Open a PR on a repo where you installed the STEM App: make a change on a new branch, open the PR against the default branch, and within ~30 seconds a card appears and moves QUEUED → PROVISIONING → ACTIVE. On the Vercel free plan the pipeline steps on a daily cron, so use the Advance Pipeline button in the operator console to move it instantly. The dashboard's empty state and the Your First Branch section in the docs walk through every step.",
+  },
+  {
+    q: "How do I connect my AWS Aurora cluster?",
+    a: "On the Connect page, after installing the GitHub App: (1) open AWS CloudShell and paste the one command shown there — it deploys a least-privilege IAM role and prints its ARN; (2) paste the ARN back; (3) enter your Aurora source cluster ID, DB subnet group, and VPC security group (copy these from the RDS console). STEM verifies it can describe the cluster before saving. No long-lived AWS keys ever leave your account.",
+  },
+  {
     q: "Is raw production data ever readable from a branch?",
     a: "No. The masking pass runs inside the clone before any branch credentials are generated. There is no time window in which issued credentials can read unmasked rows.",
   },
