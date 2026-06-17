@@ -4,16 +4,16 @@
 
 **Isolated, PII-anonymized Aurora PostgreSQL branches for every pull request.**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-stem--frontend--six.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://stem-frontend-six.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-stem--frontend--six.vercel.app-000000?style=flat-square&logo=vercel&logoColor=white)](https://stem-frontend-six.vercel.app)
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![AWS Aurora](https://img.shields.io/badge/AWS-Aurora%20PostgreSQL-FF9900?style=flat-square&logo=amazonaws&logoColor=white)](https://aws.amazon.com/rds/aurora/)
-[![Aurora DSQL](https://img.shields.io/badge/AWS-Aurora%20DSQL-FF9900?style=flat-square&logo=amazonaws&logoColor=white)](https://aws.amazon.com/rds/aurora/dsql/)
+[![AWS Aurora](https://img.shields.io/badge/AWS-Aurora%20PostgreSQL-FF9900?style=flat-square&logo=amazonwebservices&logoColor=white)](https://aws.amazon.com/rds/aurora/)
+[![Aurora DSQL](https://img.shields.io/badge/AWS-Aurora%20DSQL-FF9900?style=flat-square&logo=amazonwebservices&logoColor=white)](https://aws.amazon.com/rds/aurora/dsql/)
 [![Vercel](https://img.shields.io/badge/Deployed-Vercel-000000?style=flat-square&logo=vercel&logoColor=white)](https://vercel.com)
 [![GitHub App](https://img.shields.io/badge/GitHub-App-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/apps/stem-ci-andrew-kevin-007)
 [![Security](https://img.shields.io/badge/Security-AES--256--GCM%20%7C%20IAM%20least--privilege-22c55e?style=flat-square&logo=letsencrypt&logoColor=white)](#security-model)
-[![H0 Hackathon](https://img.shields.io/badge/H0%20Hackathon-Vercel%20%2B%20AWS%20Databases-7c3aed?style=flat-square&logo=hackthebox&logoColor=white)](https://h0.vercel.app)
+[![H0 Hackathon](https://img.shields.io/badge/H0%20Hackathon-Vercel%20%2B%20AWS%20Databases-7c3aed?style=flat-square)](https://h0.vercel.app)
 
 > Every PR gets its own Aurora clone, PII anonymized, auto-destroyed on close.  
 > Sub-30 second provisioning. $0.22/day for two active branches. Fails closed on unmasked schemas.
