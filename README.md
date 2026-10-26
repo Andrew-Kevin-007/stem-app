@@ -18,6 +18,8 @@
 > Every PR gets its own Aurora clone, PII anonymized, auto-destroyed on close.  
 > Sub-30 second provisioning. $0.22/day for two active branches. Fails closed on unmasked schemas.
 
+[Read the case study](https://www.kevinandrew.tech/work/stem)
+
 </div>
 
 ---
